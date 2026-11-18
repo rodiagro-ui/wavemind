@@ -134,6 +134,11 @@ const EN = {
   'chip cuántico a −273 °C': 'quantum chip at −273 °C', '¡fusión!': 'fusion!', 'vivo + fantasma': 'alive + ghost', '¡vivo!': 'alive!', 'fantasma': 'ghost',
   'siempre opuestos': 'always opposite', 'sin decidir…': 'undecided…', 'barrera': 'barrier', '1 µs de error = 300 m': '1 µs error = 300 m',
   'onda': 'wave', 'ruido': 'noise', '🌡️ calor': '🌡️ heat', 'mirando: 2 manchas': 'watching: 2 blobs', 'sin mirar: franjas': 'not watching: stripes',
+  'Encontrá la carta marcada… ¡sin mirar!': 'Find the marked card… without looking!', 'Meta: una carta al 100 %': 'Goal: one card at 100%', 'JEFE FINAL': 'FINAL BOSS',
+  'El oráculo marcó en secreto una carta (fase π). Conectá los 4 espejos π para que la onda se junte en ella.': 'The oracle secretly marked one card (π phase). Connect the 4 π mirrors so the wave piles up on it.',
+  'Algoritmo de Grover: halla 1 entre N con unas √N consultas. Acá, 1 sola en vez de hasta 3.': "Grover's algorithm: finds 1 in N with about √N queries. Here just 1, instead of up to 3.",
+  'El algoritmo de Grover': "Grover's algorithm", 'Lov Grover lo inventó en 1996: un oráculo marca la respuesta con una fase y la difusión la amplifica. Busca entre N con unas √N consultas.': 'Lov Grover devised it in 1996: an oracle marks the answer with a phase and diffusion amplifies it. It searches N items in about √N queries.',
+  'ORÁCULO  ?': 'ORACLE  ?', 'superposición': 'superposition', 'oráculo': 'oracle', 'difusión': 'diffusion',
   'Las computadoras cuánticas no adivinan: cancelan las respuestas falsas. ¿Vos podés?': "Quantum computers don't guess. They cancel the wrong answers. Can you?",
 };
 const tr = s => (LANG === 'en' && typeof s === 'string' && EN[s] !== undefined) ? EN[s] : s;
@@ -246,7 +251,7 @@ const TUT_E2 = { sizes: [1, 2, 2], labels: ['SÍ', 'NO'], target: [1, 0], q: '¿
 function build(spec) {
   const nodes = [], idOf = [];
   spec.sizes.forEach((n, l) => { idOf[l] = []; for (let i = 0; i < n; i++) { idOf[l].push(nodes.length); nodes.push({ l, i, x: 0, y: 0, hot: false, eye: -1, bit: -1 }); } });
-  const edges = spec.edges.map(([la, ia, lb, ib, f]) => ({ from: idOf[la][ia], to: idOf[lb][ib], inv: f.includes('i'), fixed: f.includes('f'), on0: f.includes('f') || f.includes('o') }));
+  const edges = spec.edges.map(([la, ia, lb, ib, f]) => ({ from: idOf[la][ia], to: idOf[lb][ib], inv: f.includes('i'), fixed: f.includes('f'), on0: f.includes('f') || f.includes('o'), hide: f.includes('h') }));
   const E = edges.length, eyeNodes = [];
   (spec.hot || []).forEach(([l, i]) => { nodes[idOf[l][i]].hot = true; });
   (spec.eyes || []).forEach(([l, i]) => { const v = idOf[l][i]; nodes[v].eye = eyeNodes.length; eyeNodes.push(v); });
@@ -286,7 +291,7 @@ function evalLv(lv, on, full) {
   I.forEach(x => total += x);
   const P = I.map(x => total > 1e-9 ? x / total : 0);
   let ok = total >= MIN_TOTAL;
-  for (let i = 0; i < P.length && ok; i++) if (Math.abs(P[i] - lv.target[i]) > TOL) ok = false;
+  for (let i = 0; i < P.length && ok; i++) if (Math.abs(P[i] - lv.target[i]) > (lv.tol || TOL)) ok = false;
   if (!full) return ok;
   // para dibujar: amplitud neta si es coherente; si hay partes "marcadas", magnitud + bandera de ruido
   const flat = (arr, n) => {
@@ -391,7 +396,22 @@ const CH = [
 ];
 const LAST = CH.length * PER;
 const chapOf = n => Math.floor((n - 1) / PER), jOf = n => (n - 1) % PER;
+const BOSS = LAST + 1;
+// Grover con N = 4: Q reparte 1/2 a cada carta; el oráculo invierte la fase de la marcada;
+// la difusión (inversión sobre la media) es 4 cables por carta: +½ a las otras y −½ (espejo π) a sí misma.
+// Con los 4 espejos conectados, la marcada queda con amplitud 1 y las demás en 0: una sola consulta.
+function bossSpec() {
+  const m = Math.random() * 4 | 0, edges = [];
+  for (let j = 0; j < 4; j++) edges.push([0, 0, 1, j, 'fh' + (j === m ? 'i' : '')]);
+  for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) edges.push([1, j, 2, i, i === j ? 'i' : 'f']);
+  return { sizes: [1, 4, 4], edges, labels: ['♠', '♥', '♦', '♣'], target: [0, 1, 2, 3].map(i => i === m ? 1 : 0), boss: true, tol: 0.005,
+    q: 'Encontrá la carta marcada… ¡sin mirar!', e: '🃏', kind: 'one', extra: 2,
+    hint: 'El oráculo marcó en secreto una carta (fase π). Conectá los 4 espejos π para que la onda se junte en ella.',
+    learn: 'Algoritmo de Grover: halla 1 entre N con unas √N consultas. Acá, 1 sola en vez de hasta 3.' };
+}
+const chapLabel = n => n === BOSS ? '👑 ' + tr('JEFE FINAL') : `${CH[chapOf(n)].icon} ${tr(CH[chapOf(n)].name).toUpperCase()} · ${jOf(n) + 1}/${PER}`;
 function levelSpec(n) {
+  if (n === BOSS) return bossSpec();
   const c = chapOf(n), L = CH[c].levels[jOf(n)];
   if (L.spec) return L.spec;
   return genSpec(n, L.gen) || (CH[c].levels.find(x => x.spec) || S(TUT[8])).spec;
@@ -450,11 +470,13 @@ const totalStars = () => { let s = 0; for (let n = 1; n <= LAST; n++) s += save.
 const chapStars = c => { let s = 0; for (let j = 0; j < PER; j++) s += save.stars[c * PER + j + 1] || 0; return s; };
 const chapOpen = c => totalStars() >= CH[c].need;
 const levelOpen = n => n >= 1 && n <= LAST && chapOpen(chapOf(n)) && (jOf(n) === 0 || (save.stars[n - 1] || 0) > 0);
-const albumDone = () => Object.values(save.cards).filter(v => v >= 2).length;
+const albumDone = () => Object.keys(save.cards).filter(k => +k < 15 && save.cards[k] >= 2).length;
 let toast = null;
 function say(text) { toast = { text, t: 0 }; }
 function goNext() {
   const n = level + 1;
+  if (n === BOSS) { state = 'chapters'; say(L('¡Desbloqueaste al JEFE FINAL 👑! Está al final del capítulo 5.', 'You unlocked the FINAL BOSS 👑! It is at the end of chapter 5.')); return; }
+  if (n > BOSS) { state = 'chapters'; say(L('¡Venciste al jefe final! Ahora probá el Arcade y entrá al ranking.', 'You beat the final boss! Now try Arcade and hit the leaderboard.')); return; }
   if (n > LAST) { state = 'chapters'; say(L('¡Terminaste los 5 capítulos! Pronto: el jefe final.', 'You finished all 5 chapters! Coming soon: the final boss.')); return; }
   if (jOf(n) === 0) {
     state = 'chapters'; const c = chapOf(n);
@@ -479,8 +501,8 @@ function toggle(k) {
     on[k] ^= 1; moves--; used++; flashK = k; flashT = 0.35; sel = -1; prev = null;
     sfx(on[k] ? 'on' : 'off');
   }
-  res = evalLv(lv, on, true); handTarget();
-  if (res.ok) { state = 'measure'; stT = 0; outcome = sample(res.P); sfx('measure'); }
+  const before = res; res = evalLv(lv, on, true); handTarget(); soundMix(before, res);
+  if (res.ok) { buzz(40); state = 'measure'; stT = 0; outcome = sample(res.P); sfx('measure'); }
   else if (moves === 0) { state = 'lost'; stT = 0; sfx('fail'); }
 }
 // vista previa: el primer toque muestra qué pasaría; el segundo, en el mismo cable u ojo, lo confirma
@@ -677,6 +699,19 @@ function tone(f, d, type, vol, when) {
   g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol || 0.12, t0 + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
   o.connect(g).connect(AC.destination); o.start(t0); o.stop(t0 + d + 0.02);
 }
+const NOTES = [523.25, 659.25, 783.99, 987.77];        // do, mi, sol, si: cada salida suena con su nota
+function sweep(f0, f1, d, vol) {
+  if (!AC) return; const t0 = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(f1, t0 + d);
+  g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d); o.connect(g).connect(AC.destination); o.start(t0); o.stop(t0 + d + 0.02);
+}
+const buzz = ms => { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} };
+function soundMix(before, after) {          // acorde de las respuestas según su probabilidad; "fiuuu" si alguna se anuló
+  if (!AC || !before || !after) return;
+  if (before.P.some((p, i) => p > 0.2 && after.P[i] < 0.05)) sweep(760, 170, 0.4, 0.06);
+  after.P.forEach((p, i) => { if (p > 0.04) tone(NOTES[i % 4], 0.5, 'sine', 0.015 + 0.07 * p, 0.05); });
+  buzz(12);
+}
 function sfx(k) {
   if (k === 'on') { tone(660, 0.12, 'triangle'); tone(990, 0.1, 'sine', 0.05, 0.04); }
   else if (k === 'off') tone(330, 0.12, 'triangle');
@@ -718,7 +753,7 @@ cv.addEventListener('pointerdown', ev => {
   if (state === 'science') { if (inRect(x, y, BTN.back)) state = 'title'; return; }
   if (state === 'chapters') {
     if (inRect(x, y, BTN.back)) { state = 'title'; return; }
-    for (let n = 1; n <= LAST; n++) if (inRect(x, y, BTN['lv' + n])) { startLevel(n); return; }
+    for (let n = 1; n <= BOSS; n++) if (inRect(x, y, BTN['lv' + n])) { startLevel(n); return; }
     return;
   }
   if (state === 'album') { if (inRect(x, y, BTN.back)) state = 'title'; else for (let i = 0; i < CARDS.length; i++) if (inRect(x, y, BTN['card' + i])) { cardView = i; state = 'card'; } return; }
@@ -811,6 +846,7 @@ function polyPath(e, i0, i1, dx, wave) {
   }
 }
 function goalText() {
+  if (lv.boss) return tr('Meta: una carta al 100 %');
   const t = lv.target, lb = lv.labels.map(tr), g = tr('Meta:') + ' ';
   if (lv.kind === 'one') return g + lb[t.indexOf(1)] + ' 100 %';
   if (lv.kind === 'uni') return g + '25 % ' + tr('cada una');
@@ -904,7 +940,7 @@ function drawCable(e, k, ON, R) {
   }
   if (e.fixed && TH.cable === 'trace') for (const i of [7, 53]) { ctx.beginPath(); ctx.arc(e.wv[i][0] + dx, e.wv[i][1], 5.5, 0, 7); ctx.fillStyle = '#e8c06a'; ctx.fill(); }
   if (k === flashK && flashT > 0) { ctx.lineWidth = 10; ctx.strokeStyle = rgba(TH.ink, flashT); curve(e, dx); ctx.stroke(); }
-  const badges = []; if (e.inv) badges.push('π'); if (e.fixed) badges.push('🔒');
+  const badges = []; if (e.inv && !e.hide) badges.push('π'); if (e.fixed) badges.push('🔒');
   badges.forEach((bt, i) => {
     const p = e.pts[badges.length === 1 ? 15 : (i ? 18 : 12)], x = p[0] + dx, y = p[1];
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -970,11 +1006,17 @@ function drawNet() {
     else { ctx.lineWidth = 18; curve(lv.edges[sel], 0); ctx.stroke(); }
   }
   lv.edges.forEach((e, k) => drawCable(e, k, ON, R));
+  if (lv.boss) {                                  // caja negra del oráculo sobre los cables de la superposición
+    const y0 = lv.nodes[0].y + 70, y1 = lv.nodes[1].y - 70;
+    ctx.save(); glowOn(TH.gold, 18); roundRect(70, y0, W - 140, y1 - y0, 18); ctx.fillStyle = 'rgba(10,12,20,0.82)'; ctx.fill(); ctx.restore();
+    roundRect(70, y0, W - 140, y1 - y0, 18); ctx.setLineDash([8, 6]); ctx.lineDashOffset = -T * 20; ctx.lineWidth = 2; ctx.strokeStyle = TH.gold; ctx.stroke(); ctx.setLineDash([]);
+    ctx.textAlign = 'center'; ctx.fillStyle = TH.gold; ctx.font = `700 26px ${F}`; ctx.fillText('ORÁCULO  ?', W / 2, (y0 + y1) / 2 + 9);
+  }
   const L = lv.sizes.length;
   lv.nodes.forEach((n, v) => { if (n.l < L - 1) drawNode(n, v, R.amp[v], false, R.cancel[v], R.noisyV[v], n.eye >= 0 && ON[lv.E + n.eye]); });
   lv.outputs.forEach((id, i) => {
     const n = lv.nodes[id], P = R.P[i], tg = lv.target[i];
-    const good = Math.abs(P - tg) <= TOL && R.total >= MIN_TOTAL;
+    const good = Math.abs(P - tg) <= (lv.tol || TOL) && R.total >= MIN_TOTAL;
     drawNode(n, id, R.amp[id], (state === 'measure' || state === 'won' || (state === 'attract' && att.done >= 0)) && i === outcome, R.cancel[id], R.noisyV[id], false);
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = TH.text; ctx.font = `700 ${lv.labels[i].length > 6 ? 22 : 28}px ${F}`; ctx.fillText(lv.labels[i], n.x, n.y + 70);
@@ -991,7 +1033,7 @@ function drawHud() {
   if (mode !== 'story') { drawArcadeHud(); return; }
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left'; ctx.fillStyle = TH.accent; ctx.font = `700 26px ${F}`; ctx.fillText('WAVEMIND', 26, 46);
-  ctx.fillStyle = TH.sub; ctx.font = `700 17px ${F}`; ctx.fillText(`${CH[chapOf(level)].icon} ${tr(CH[chapOf(level)].name).toUpperCase()} · ${jOf(level) + 1}/${PER}`, 26, 72);
+  ctx.fillStyle = TH.sub; ctx.font = `700 17px ${F}`; ctx.fillText(chapLabel(level), 26, 72);
   BTN.menu = [20, 20, 140, 60];
   const tot = Object.values(save.stars).reduce((a, b) => a + b, 0);
   ctx.textAlign = 'center'; ctx.fillStyle = TH.gold; ctx.font = `700 22px ${F}`; ctx.fillText('★ ' + tot, W / 2 - 62, 58);
@@ -1076,9 +1118,9 @@ function drawOverlay() {
     drawCard(cardIdx, 110, 372, 500, 560, stT, rewardBadge, flip, cardHalf);
     drawBurst(W / 2, 650, stT - 0.55);
     ctx.textAlign = 'center'; ctx.fillStyle = TH.faint; ctx.font = `16px ${F}`;
-    ctx.fillText(L(`Usaste ${used} mov. (mínimo ${lv.par}) · Álbum ${albumDone()}/${CARDS.length}`, `Used ${used} moves (best ${lv.par}) · Album ${albumDone()}/${CARDS.length}`), W / 2, 972);
+    ctx.fillText(L(`Usaste ${used} mov. (mínimo ${lv.par}) · Álbum ${albumDone()}/${CARDS.length - 1}`, `Used ${used} moves (best ${lv.par}) · Album ${albumDone()}/${CARDS.length - 1}`), W / 2, 972);
     button('again', 90, 1000, 200, 64, '↺ Otra vez', TH.sub);
-    button('next', 310, 1000, 320, 64, level % PER === 0 ? 'Capítulos ▶' : 'Siguiente nivel ▶', TH.good, true);
+    button('next', 310, 1000, 320, 64, level % PER === 0 || level >= BOSS ? 'Capítulos ▶' : 'Siguiente nivel ▶', TH.good, true);
   }
   if (state === 'lost') {
     panel(420, 330);
@@ -1140,7 +1182,7 @@ function drawTitle() {
   ctx.textAlign = 'center'; ctx.fillStyle = TH.faint; ctx.font = `16px ${F}`;
   ctx.fillText(L(`Arcade · ${ARC_TIME} s`, `Arcade · ${ARC_TIME} s`) + (save.bestArc ? L(` · récord ${save.bestArc}`, ` · best ${save.bestArc}`) : ''), W / 2, 962);
   button('story', W / 2 - 250, 984, 240, 56, L('📖 Historia', '📖 Story'), TH.accent);
-  button('album', W / 2 + 10, 984, 240, 56, `📒 ${L('Álbum', 'Album')} ${albumDone()}/${CARDS.length}`, TH.gold);
+  button('album', W / 2 + 10, 984, 240, 56, `📒 ${L('Álbum', 'Album')} ${albumDone()}/${CARDS.length - 1}`, TH.gold);
   button('board', W / 2 - 250, 1052, 240, 56, L('🏆 Ranking', '🏆 Leaderboard'), TH.gold);
   button('science', W / 2 + 10, 1052, 240, 56, L('⚛ La ciencia', '⚛ The science'), TH.accent);
   button('theme', W / 2 - 250, 1120, 240, 56, '🎨 ' + tr(TH.name), TH.sub);
@@ -1356,6 +1398,19 @@ function sTele(x, y, w, h, t) {
   ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(h * 0.07)}px ${F}`; ctx.textAlign = 'right'; ctx.fillText('1.400 km', x + w - 12, y + h - 12);
 }
 
+function sGrover(x, y, w, h, t) {
+  const p = t % 7, st = p < 2 ? 0 : p < 4 ? 1 : 2, k = st === 2 ? Math.min(1, (p - 4) / 1.2) : 0, m = 1;
+  const base = y + h * 0.56, sc = h * 0.34, bw = w * 0.12;
+  const amps = [0, 1, 2, 3].map(i => { let a = (st >= 1 && i === m) ? -0.5 : 0.5; if (st === 2) a += ((i === m ? 1 : 0) - a) * k; return a; });
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x + 14, base); ctx.lineTo(x + w - 14, base); ctx.stroke();
+  if (st === 2 && k < 0.6) { ctx.setLineDash([6, 5]); ctx.strokeStyle = '#ffd84a'; ctx.beginPath(); ctx.moveTo(x + 14, base - 0.25 * sc); ctx.lineTo(x + w - 14, base - 0.25 * sc); ctx.stroke(); ctx.setLineDash([]); }
+  amps.forEach((a, i) => {
+    const bx = x + w * (0.2 + i * 0.2) - bw / 2, col = a >= 0 ? '#45e3ff' : '#ff4fd8';
+    ctx.save(); glowOn(col, 12); ctx.fillStyle = col; ctx.fillRect(bx, a >= 0 ? base - a * sc : base, bw, Math.max(2, Math.abs(a) * sc)); ctx.restore();
+    ctx.fillStyle = i === m && st === 2 && k > 0.9 ? '#ffd84a' : '#fff'; ctx.font = `700 ${Math.round(h * 0.11)}px ${F}`; ctx.textAlign = 'center'; ctx.fillText(['♠', '♥', '♦', '♣'][i], bx + bw / 2, y + h * 0.95);
+  });
+  ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(h * 0.075)}px ${F}`; ctx.textAlign = 'left'; ctx.fillText(['superposición', 'oráculo', 'difusión'][st], x + 12, y + h * 0.12);
+}
 const CARDS = [
   { name: 'La doble rendija', draw: sRendija, fact: 'Los electrones llegan de a uno y aun así dibujan franjas: cada uno pasó por las dos rendijas como onda.' },
   { name: 'El Sol funciona por efecto túnel', draw: sSol, fact: 'Dos protones se repelen y, según la física clásica, nunca se tocarían. Atraviesan esa barrera por efecto túnel y así brilla el Sol.' },
@@ -1372,6 +1427,7 @@ const CARDS = [
   { name: 'Decoherencia', draw: sCalor, fact: 'Cualquier choque con el entorno "delata" el camino de la onda y borra la interferencia. Es el gran enemigo de las computadoras cuánticas.' },
   { name: 'Mirar cambia el resultado', draw: sOjo, fact: 'Si medís por qué rendija pasa cada electrón, las franjas desaparecen y quedan dos manchas. Saber el camino borra la interferencia.' },
   { name: 'Teletransportación cuántica', draw: sTele, fact: 'En 2017 el satélite chino Micius teletransportó el estado cuántico de fotones a más de 1.000 km. No viaja materia: viaja información.' },
+  { name: 'El algoritmo de Grover', draw: sGrover, fact: 'Lov Grover lo inventó en 1996: un oráculo marca la respuesta con una fase y la difusión la amplifica. Busca entre N con unas √N consultas.' },
 ];
 const cardChap = i => Math.max(0, CH.findIndex(c => c.cards.includes(i)));
 function sparkle(x, y, r) {
@@ -1391,7 +1447,7 @@ function drawCardBack(x, y, w, h, t, col, big) {
 }
 // figurita: badge = texto de la cinta ("¡NUEVA!"...), flip ∈ [−1, 1] (negativo = dorso), half = solo la mitad descubierta
 function drawCard(i, x, y, w, h, t, badge, flip, half) {
-  const c = CARDS[i], ch = CH[cardChap(i)], col = ch.col, big = w > 400, rad = big ? 22 : 14, pad = big ? 22 : 12;
+  const c = CARDS[i], ch = i === 15 ? { icon: '👑', name: 'JEFE FINAL', col: [255, 216, 74] } : CH[cardChap(i)], col = ch.col, big = w > 400, rad = big ? 22 : 14, pad = big ? 22 : 12;
   const cx = x + w / 2, cy = y + h / 2;
   ctx.save(); ctx.translate(cx, cy); ctx.scale(Math.max(0.02, Math.abs(flip)), 1);
   if (big) ctx.transform(1, 0, Math.sin(t * 1.3) * 0.012, 1, 0, 0);
@@ -1457,7 +1513,7 @@ function drawBurst(cx, cy, t) {
 function drawAlbum() {
   drawBackground();
   ctx.textAlign = 'center'; ctx.fillStyle = TH.accent; ctx.font = `700 40px ${F}`; ctx.fillText('Álbum cuántico', W / 2, 78);
-  ctx.fillStyle = TH.sub; ctx.font = `19px ${F}`; ctx.fillText(L(`${albumDone()} de ${CARDS.length} completas · cada nivel te da media figurita`, `${albumDone()} of ${CARDS.length} complete · every level gives half a card`), W / 2, 114);
+  ctx.fillStyle = TH.sub; ctx.font = `19px ${F}`; ctx.fillText(L(`${albumDone()} de ${CARDS.length - 1} completas · cada nivel te da media figurita`, `${albumDone()} of ${CARDS.length - 1} complete · every level gives half a card`), W / 2, 114);
   CH.forEach((ch, c) => ch.cards.forEach((id, k) => {
     const cx = 40 + k * 220, cy = 140 + c * 200, parts = save.cards[id] || 0;
     if (parts) { drawCard(id, cx, cy, 200, 188, T + id, null, 1, parts < 2); BTN['card' + id] = [cx, cy, 200, 188]; }
@@ -1501,6 +1557,14 @@ function drawChapters() {
       ctx.fillStyle = TH.gold; ctx.font = `13px ${F}`; ctx.fillText('★'.repeat(st), px, py + 44);
       BTN['lv' + n] = can ? [px - 30, py - 30, 60, 60] : null;
     }
+    if (c === CH.length - 1) {
+      const px = x + 92 + PER * 90, py = y + 124, st = save.stars[BOSS] || 0, can = (save.stars[LAST] || 0) > 0;
+      ctx.save(); if (can) glowOn(TH.gold, 16 + 8 * Math.sin(T * 4)); ctx.beginPath(); ctx.arc(px, py, 24, 0, 7);
+      ctx.fillStyle = st ? TH.gold : TH.dark ? 'rgba(255,216,74,0.08)' : '#fff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = can ? TH.gold : TH.track; ctx.stroke(); ctx.restore();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `22px ${F}`; ctx.fillText(can || st ? '👑' : '🔒', px, py + 1); ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = TH.gold; ctx.font = `13px ${F}`; ctx.fillText('★'.repeat(st), px, py + 44);
+      BTN['lv' + BOSS] = can ? [px - 30, py - 30, 60, 60] : null;
+    }
     ctx.globalAlpha = 1;
     if (!open) { ctx.textAlign = 'right'; ctx.fillStyle = TH.warn; ctx.font = `700 17px ${F}`; ctx.fillText(L(`🔒 Necesitás ${ch.need} ★`, `🔒 Needs ${ch.need} ★`), x + w - 22, y + 74); }
   });
@@ -1538,14 +1602,18 @@ function update(dt) {
   if (state === 'title' && idleT > 20) startAttract();
   if (state === 'board' && idleT > 40) startAttract();
   if (state === 'attract') attractStep(dt);
-  if (mode === 'arcade' && (state === 'play' || state === 'measure')) { arc.time -= dt; if (arc.time <= 0) { arc.time = 0; arcadeOver(); } }
+  if (mode === 'arcade' && (state === 'play' || state === 'measure')) {
+    const before = Math.ceil(arc.time); arc.time -= dt;
+    if (arc.time < 10 && Math.ceil(arc.time) < before) tone(1250, 0.05, 'square', 0.03);
+    if (arc.time <= 0) { arc.time = 0; arcadeOver(); }
+  }
   if (mode === 'arcade' && state === 'measure' && stT > 0.5) arcadeSolved();
   if (mode === 'story' && state === 'measure' && stT > 0.9) {
     state = 'won'; stT = 0;
     gotStars = used <= lv.par ? 3 : used <= lv.par + 1 ? 2 : 1;
     save.stars[level] = Math.max(save.stars[level] || 0, gotStars);
     if (level + 1 > save.max) save.max = level + 1;
-    const id = CH[chapOf(level)].cards[jOf(level) >> 1], want = (jOf(level) & 1) ? 2 : 1, before = save.cards[id] || 0;
+    const id = level === BOSS ? 15 : CH[chapOf(level)].cards[jOf(level) >> 1], want = (level === BOSS || (jOf(level) & 1)) ? 2 : 1, before = save.cards[id] || 0;
     if (want > before) save.cards[id] = want;
     cardIdx = id; cardHalf = (save.cards[id] || 0) < 2;
     rewardBadge = want > before ? (want === 1 ? 'NUEVA · 1/2' : before === 1 ? '¡COMPLETA!' : '¡NUEVA!') : null;
@@ -1575,6 +1643,7 @@ if (hp.get('stars')) { const n = +hp.get('stars'); for (let i = 1; i <= n; i++) 
 if (hp.has('cap')) state = 'chapters';
 if (hp.get('lang')) LANG = hp.get('lang');
 if (hp.has('arcade')) startArcade();
+if (hp.has('jefe')) startLevel(BOSS);
 if (hp.has('demo')) startAttract();
 if (hp.has('board')) { save.board = [{ n: 'ROD', s: 4250, p: 12 }, { n: 'AMY', s: 3100, p: 9 }, { n: 'JKL', s: 1800, p: 6 }]; state = 'board'; }
 if (hp.has('album')) state = 'album';
