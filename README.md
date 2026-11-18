@@ -20,7 +20,8 @@ WAVEMIND is a quick, tap-to-play puzzle game about how quantum computers really 
 | Mode | For | What it is |
 |---|---|---|
 | **Arcade** | Event booth | A 75-second run with endless generated puzzles. Score comes from solving and from perfect (minimum-move) streaks. The run ends on a 3-letter arcade leaderboard. When nobody is playing, an **attract mode** plays itself. |
-| **Story** | Players who want more | 5 chapters × 6 levels (Connections, Interference, Deep Networks, Noise, The Spy), unlocked with stars. Story levels have a **tap-to-preview, tap-to-confirm** control. |
+| **Story** | Players who want more | 5 chapters × 6 levels (Connections, Interference, Deep Networks, Noise, The Spy), unlocked with stars, plus a **final boss built on Grover's search algorithm**. Story levels have a **tap-to-preview, tap-to-confirm** control. |
+| **Daily challenge** | Retention after the event | The same puzzle for everyone each day, with a Wordle-style shareable result. |
 | **Quantum Album** | Story rewards | Every story level unlocks half of an animated collectible card about real quantum phenomena: the double slit, solar fusion tunnelling, entanglement, lasers, superconductors, GPS atomic clocks and more. |
 
 ## The physics (simplified, but honest)
@@ -34,6 +35,14 @@ WAVEMIND is a quick, tap-to-play puzzle game about how quantum computers really 
 What we simplify: phases are only 0 or π, and merging cables is not strictly unitary, so we normalize at measurement. The in-game "The science" screen explains this.
 
 Every generated level is checked by a brute-force solver. It guarantees the level can be solved, computes the minimum number of moves (used for stars and scoring), and makes interference or noise matter where the chapter requires it.
+
+## Tests
+
+```bash
+npm test
+```
+
+The headless suite runs the real game script with a stubbed canvas. It checks exact destructive interference, Born-rule normalization, decoherence, the observer effect, Grover's 100% result, the solvability and determinism of all 30 story levels, the 75-second arcade run and translation coverage.
 
 ## Run it
 
