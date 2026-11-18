@@ -106,6 +106,13 @@ The game is a single file with zero dependencies, and booths often have bad Wi-F
 - OpenCV decodes `https://rodiagro-ui.github.io/wavemind/` from the engine output **and from screen captures of both QR placements**, even at half size.
 - The small attract-mode QR overlapped the answer bars, so Claude reworked that layout into two columns: text on the left, QR on the right.
 
+### The video, made by a pipeline
+- **Gameplay.** Claude wrote a Playwright script that plays every scene by itself. It follows the game's own tutorial "hand", which always points at the next optimal move, and draws a visible finger on each tap.
+- **Edit.** ffmpeg assembles the clips with English captions. The music is original: a pad built from the game's four answer notes (C, E, G, B).
+- **Voice.** The author recorded the voice-over in one take. The pipeline cut it into 13 lines by detecting silences, cleaned the room echo and synced each scene to the length of its line.
+- **Tempo.** After watching v1, the author asked for a faster cut. v4 runs at 1:04.
+- **A real bug.** Recording found a bug that no test had caught. On the first animation frame the browser's timestamp can precede the start time, so game time briefly went negative and the album crashed on a negative canvas radius. It was fixed at the root (clamped `dt`), and we confirmed 0 page errors across 33 screen loads.
+
 ### Lessons about working with two agents
 - **Tests guard the physics, not the pixels.** All three of Junie's rounds passed the 8 engine tests, yet two rounds still had visible bugs. The fix was a second agent that *looks at the screen*.
 - **Specific reviews get specific fixes.** Feedback with exact coordinates and array indices was fixed on the first try every time.
