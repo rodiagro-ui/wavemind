@@ -1605,7 +1605,7 @@ function drawOverlay() {
     drawCard(cardIdx, 110, 372, 500, 560, stT, rewardBadge, flip, cardHalf);
     drawBurst(W / 2, 650, stT - 0.55);
     ctx.textAlign = 'center'; ctx.fillStyle = TH.faint; ctx.font = `16px ${F}`;
-    ctx.fillText(L(`Usaste ${used} mov. (mínimo ${lv.par}) · Álbum ${albumDone()}/${CARDS.length - 1}`, `Used ${used} moves (best ${lv.par}) · Album ${albumDone()}/${CARDS.length - 1}`), W / 2, 972);
+    ctx.fillText(L(`Usaste ${used} mov. (mínimo ${lv.par}) · Álbum ${albumDone()}/${CARDS.length - 1}`, `Used ${used} move${used === 1 ? '' : 's'} (best ${lv.par}) · Album ${albumDone()}/${CARDS.length - 1}`), W / 2, 972);
     button('again', 90, 1000, 200, 64, '↺ Otra vez', TH.sub);
     button('next', 310, 1000, 320, 64, level % PER === 0 || level >= BOSS ? 'Capítulos ▶' : 'Siguiente nivel ▶', TH.good, true);
   }
@@ -1946,7 +1946,7 @@ function drawCard(i, x, y, w, h, t, badge, flip, half) {
   ctx.save(); glowOn(rgba(col, 0.5), big ? 34 : 14); roundRect(x, y, w, h, rad);
   const bg = ctx.createLinearGradient(x, y, x, y + h); bg.addColorStop(0, rgba(dim(col, 0.24), 1)); bg.addColorStop(0.5, '#08101c'); bg.addColorStop(1, '#05080f');
   ctx.fillStyle = bg; ctx.fill(); ctx.restore();
-  const hg = ctx.createLinearGradient(x, y, x + w, y + h), ph = (t * 0.2) % 1;
+  const hg = ctx.createLinearGradient(x, y, x + w, y + h), ph = ((t * 0.2) % 1 + 1) % 1;   // t can be slightly negative: keep colour stops inside [0, 1)
   for (const [o, cc] of [[0, '#45e3ff'], [0.25, '#ff4fd8'], [0.5, '#ffd84a'], [0.75, '#5dff9a']]) hg.addColorStop((o + ph) % 1, cc);
   roundRect(x, y, w, h, rad); ctx.lineWidth = big ? 4 : 2.5; ctx.strokeStyle = hg; ctx.stroke();
   roundRect(x + 7, y + 7, w - 14, h - 14, rad - 6); ctx.lineWidth = 1; ctx.strokeStyle = rgba(col, 0.35); ctx.stroke();
@@ -2119,7 +2119,7 @@ function update(dt) {
 }
 
 let last = performance.now();
-function frame(now) { const dt = Math.min(0.05, (now - last) / 1000); last = now; update(dt); draw(); requestAnimationFrame(frame); }
+function frame(now) { const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); /* the first rAF timestamp can precede `last`: never run time backwards */ last = now; update(dt); draw(); requestAnimationFrame(frame); }
 
 // #lv=N abre un nivel; #lv=N&solve=1 lo muestra resuelto (para capturas)
 const hp = new URLSearchParams(location.hash.slice(1));
