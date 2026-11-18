@@ -47,6 +47,16 @@ npm test
 
 The headless suite runs the real game script with a stubbed canvas. It checks exact destructive interference, Born-rule normalization, decoherence, the observer effect, Grover's 100% result, the solvability and determinism of all 30 story levels, the 75-second arcade run and translation coverage.
 
+## Booth-ready: soak test
+
+`tools/booth_soak_test.py` (Playwright) plays **30 Arcade sessions back to back in one page**, as on an event day. Each simulated player starts from the title, solves 4–8 puzzles, enters initials and leaves. Results on a laptop:
+
+- clean reset for every player: timer 75 s, score 0, streak 0;
+- 58–61 fps throughout;
+- JS heap stays between 2 and 8 MB, with no growth trend;
+- leaderboard capped at 10;
+- 0 page errors.
+
 ## Run it
 
 It is a single HTML file with no build step and no dependencies. Open `index.html` in any modern browser, or serve the folder:

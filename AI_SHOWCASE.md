@@ -57,8 +57,8 @@ The bots made the feedback concrete. "Is it skill or luck?" was answered with wi
 |---|---|---|---|
 | 1 | Colorblind-friendly mode: a title-screen toggle; π cables drawn dashed with +/− glyphs; strings in both languages; physics untouched; `npm test` must stay green | Shipped after **3 review rounds** (below) | Claude + author |
 | 2 | Event-booth tools on the leaderboard: export the day's scores as CSV; two-tap safe reset with no blocking dialogs; dates stored on entries | Shipped after **2 review rounds** (below) | Claude + author |
-| 4 | Live **booth display** for a second monitor (`#display`): offline top 10 that updates instantly when a player saves a score | Shipped after **2 review rounds**; found a hidden crash from task 3 | Claude + author |
 | 3 | "Play at home" QR code with **no libraries**: a from-scratch QR encoder (byte mode, ECC M, Reed–Solomon over GF(256), 8 masks with penalty scoring), shown after an arcade run and in attract mode | Shipped after **3 review rounds**; Claude finished the attract-mode layout | Claude + author |
+| 4 | Live **booth display** for a second monitor (`#display`): offline top 10 that updates instantly when a player saves a score | Shipped after **2 review rounds**; found a hidden crash from task 3 | Claude + author |
 
 **Task 1, round by round** (Junie Lite through JetBrains Air in WebStorm, 18-Nov-2026)
 
@@ -119,6 +119,8 @@ The Category 3 brief calls a local, offline live leaderboard on a separate monit
 **Round 2.** Junie fixed all three and added a regression test (11/11). Claude's re-run showed the display updating live with no reload.
 
 **Final fix, by Claude.** The new row's highlight rendered as a white bar. The cause: `rgba()` received the hex colour `'#ffd84a'`, the canvas rejected the invalid colour and kept the previous white fill.
+
+**Soak test.** Claude wrote `tools/booth_soak_test.py`: 30 Arcade players back to back in one page. Every reset was clean, frame rate stayed at 58–61 fps, the heap stayed at 2–8 MB with no growth, and there were 0 errors. A first run reported a few "dirty" resets. The cause was a flaw in the test: one animation frame ran between starting the run and checking it. The check now happens atomically, and 8 of 8 resets are clean.
 
 ### The video, made by a pipeline
 - **Gameplay.** Claude wrote a Playwright script that plays every scene by itself. It follows the game's own tutorial "hand", which always points at the next optimal move, and draws a visible finger on each tap.
