@@ -2,6 +2,8 @@
 
 **Quantum computers don't guess. They cancel the wrong answers. Can you?**
 
+▶ **Play it now: https://rodiagro-ui.github.io/wavemind/**
+
 WAVEMIND is a quick, tap-to-play puzzle game about how quantum computers really "think". You rewire the cables of a quantum AI so that its wave cancels out on the false answers and builds up on the true one. It is built for the Cloud9 x JetBrains "Sky's the Limit" Hackathon 2026 (Category 3: Event Mini Game).
 
 ## How to play
