@@ -451,6 +451,7 @@ function bez(e, t) {
 let save = { max: 1, stars: {} };
 try { const s = JSON.parse(localStorage.getItem('qbrain_v1')); if (s && s.max) save = s; } catch (e) {}
 LANG = save.lang || 'en';
+let CB = save.cb || false;
 if (!save.cards) { save.cards = {}; (save.album || []).forEach(i => { save.cards[i] = 2; }); }
 const persist = () => { try { localStorage.setItem('qbrain_v1', JSON.stringify(save)); } catch (e) {} };
 let level = 1, lv = null, on = null, moves = 0, used = 0, res = null, state = 'title', stT = 0, outcome = -1, gotStars = 0;
@@ -777,6 +778,7 @@ cv.addEventListener('pointerdown', ev => {
     else if (inRect(x, y, BTN.science)) state = 'science';
     else if (inRect(x, y, BTN.theme)) cycleTheme();
     else if (inRect(x, y, BTN.lang)) { LANG = LANG === 'en' ? 'es' : 'en'; save.lang = LANG; persist(); }
+    else if (inRect(x, y, BTN.cb)) { CB = !CB; save.cb = CB; persist(); }
     else if (inRect(x, y, BTN.daily)) startDaily();
     return;
   }
@@ -967,20 +969,35 @@ function drawCable(e, k, ON, R) {
     ctx.lineWidth = 3; ctx.strokeStyle = TH.dead; curve(e, dx); ctx.stroke();
   } else if (TH.cable === 'wave') {
     ctx.lineWidth = 1.5;
-    for (const [i0, i1, s] of segs) { ctx.strokeStyle = phase(s, 0.22); polyPath(e, i0, i1, dx, 0); ctx.stroke(); }
+    for (const [i0, i1, s] of segs) {
+      if (CB && s < 0) { ctx.setLineDash([7, 9]); }
+      ctx.strokeStyle = phase(s, 0.22); polyPath(e, i0, i1, dx, 0); ctx.stroke(); ctx.setLineDash([]);
+    }
     ctx.save(); ctx.shadowBlur = 12;
     for (const [i0, i1, s] of segs) {
+      if (CB && s < 0) { ctx.setLineDash([7, 9]); }
       ctx.shadowColor = phase(s, 1); ctx.lineWidth = 2 + 2.5 * a; ctx.strokeStyle = phase(s, 0.55 + 0.45 * a);
-      polyPath(e, i0, i1, dx, (3 + 10 * a) * Math.sign(s)); ctx.stroke();
+      polyPath(e, i0, i1, dx, (3 + 10 * a) * Math.sign(s)); ctx.stroke(); ctx.setLineDash([]);
     }
     ctx.restore();
   } else {
     ctx.lineCap = 'round';
-    for (const [i0, i1, s] of segs) { ctx.lineWidth = 3 + 7 * a; ctx.strokeStyle = phase(s, 0.85); polyPath(e, i0, i1, dx, 0); ctx.stroke(); }
+    for (const [i0, i1, s] of segs) {
+      if (CB && s < 0) { ctx.setLineDash([7, 9]); }
+      ctx.lineWidth = 3 + 7 * a; ctx.strokeStyle = phase(s, 0.85); polyPath(e, i0, i1, dx, 0); ctx.stroke(); ctx.setLineDash([]);
+    }
     ctx.lineCap = 'butt'; dots();
   }
   if (e.fixed && TH.cable === 'trace') for (const i of [7, 53]) { ctx.beginPath(); ctx.arc(e.wv[i][0] + dx, e.wv[i][1], 5.5, 0, 7); ctx.fillStyle = '#e8c06a'; ctx.fill(); }
   if (k === flashK && flashT > 0) { ctx.lineWidth = 10; ctx.strokeStyle = rgba(TH.ink, flashT); curve(e, dx); ctx.stroke(); }
+  if (CB && live && !R.noisyE[k]) {
+    const mp = e.pts[22], cVal = R.carry[k];
+    ctx.beginPath(); ctx.arc(mp[0] + dx, mp[1], 10, 0, 7); ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fill();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `700 16px ${F}`;
+    ctx.fillStyle = '#fff'; ctx.fillText(cVal >= 0 ? '+' : '−', mp[0] + dx, mp[1] + 1);
+    ctx.textBaseline = 'alphabetic';
+  }
   const badges = []; if (e.inv && !e.hide) badges.push('π'); if (e.fixed) badges.push('🔒');
   badges.forEach((bt, i) => {
     const p = e.pts[badges.length === 1 ? 15 : (i ? 18 : 12)], x = p[0] + dx, y = p[1];
@@ -1226,8 +1243,9 @@ function drawTitle() {
   button('album', W / 2 + 10, 984, 240, 56, `📒 ${L('Álbum', 'Album')} ${albumDone()}/${CARDS.length - 1}`, TH.gold);
   button('board', W / 2 - 250, 1052, 240, 56, L('🏆 Ranking', '🏆 Leaderboard'), TH.gold);
   button('science', W / 2 + 10, 1052, 240, 56, L('⚛ La ciencia', '⚛ The science'), TH.accent);
-  button('theme', W / 2 - 250, 1120, 240, 56, '🎨 ' + tr(TH.name), TH.sub);
-  button('lang', W / 2 + 10, 1120, 240, 56, LANG === 'en' ? '🌐 Español' : '🌐 English', TH.sub);
+  button('theme', W / 2 - 250, 1120, 160, 56, '🎨 ' + tr(TH.name), TH.sub);
+  button('cb', W / 2 - 80, 1120, 160, 56, L('👁 Daltonismo', '👁 Colorblind') + (CB ? ' ✓' : ''), TH.sub);
+  button('lang', W / 2 + 90, 1120, 160, 56, LANG === 'en' ? '🌐 Español' : '🌐 English', TH.sub);
   const dd = (save.daily || {})[dayNum()];
   button('daily', W / 2 - 250, 1188, 500, 56, `📅 ${L('Desafío diario', 'Daily challenge')} #${dayNum()}` + (dd ? '  ' + '★'.repeat(dd.stars) : ''), TH.good);
 }
