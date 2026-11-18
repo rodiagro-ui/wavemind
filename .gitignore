@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+# .idea and .junie are committed on purpose as evidence of JetBrains tool usage

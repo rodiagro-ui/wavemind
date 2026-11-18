@@ -1,0 +1,1584 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>WAVEMIND</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&display=swap');
+  :root{--bg:#04070d;color-scheme:dark}
+  html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;font-family:Segoe UI,system-ui,sans-serif;user-select:none;-webkit-user-select:none}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+"use strict";
+// Q-BRAIN: reconectá los cables de una IA cuántica para que resuelva el problema del momento.
+// Física (de juguete pero honesta): cada neurona reparte su amplitud entre sus cables activos (a/√k,
+// así se conserva la probabilidad). Un cable inversor (π) cambia el signo de la amplitud. En cada neurona
+// las amplitudes se SUMAN: si llegan con signos opuestos se cancelan (interferencia destructiva).
+// Al final se mide: P_i = |a_i|² / Σ|a_j|².
+const W = 720, H = 1280;
+const NET_TOP = 330, NET_BOT = 950;
+const TOL = 0.04, MIN_TOTAL = 0.2;
+const CY = '#45e3ff', MG = '#ff4fd8', GOLD = '#ffd84a';
+
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let scale = 1, ox = 0, oy = 0, dpr = 1;
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  const b = cv.getBoundingClientRect(), cw = b.width || innerWidth, ch = b.height || innerHeight;
+  cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
+  scale = Math.min(cw / W, ch / H); ox = (cw - W * scale) / 2; oy = (ch - H * scale) / 2;
+}
+addEventListener('resize', resize); resize();
+
+// ---------- idioma (inglés por defecto; el texto fuente está en español) ----------
+let LANG = 'en';
+const L = (es, en) => LANG === 'en' ? en : es;
+const EN = {
+  // respuestas
+  'SÍ': 'YES', 'AZUL': 'BLUE', 'VERDE': 'GREEN', 'ROJO': 'RED', 'MARTE': 'MARS', 'SATURNO': 'SATURN', 'AZÚCAR': 'SUGAR', 'SAL': 'SALT', 'HIERRO': 'IRON',
+  'DELFÍN': 'DOLPHIN', 'TIBURÓN': 'SHARK', 'PULPO': 'OCTOPUS', 'LUZ': 'LIGHT', 'SONIDO': 'SOUND', 'AUTO': 'CAR', 'TORTUGA': 'TURTLE', 'CABA': 'B. AIRES',
+  'CARA': 'HEADS', 'CECA': 'TAILS', 'CANTO': 'EDGE', 'VIVO': 'ALIVE', 'MUERTO': 'DEAD', 'ZOMBI': 'ZOMBIE', 'VOS': 'YOU', 'YO': 'ME', 'EL GATO': 'THE CAT',
+  // problemas
+  '¿7 es un número primo?': 'Is 7 a prime number?', '¿El Sol es una estrella?': 'Is the Sun a star?', '¿La Luna tiene luz propia?': 'Does the Moon make its own light?',
+  '¿Una araña tiene 8 patas?': 'Does a spider have 8 legs?', '¿El tomate es una fruta?': 'Is a tomato a fruit?',
+  '¿En la pampa el trigo se siembra en otoño-invierno?': 'On the Argentine Pampas, is wheat sown in autumn–winter?',
+  '¿Las ballenas son peces?': 'Are whales fish?', '¿El hielo flota en el agua?': 'Does ice float on water?',
+  'Traducí GATO al inglés': 'Translate GATO (Spanish) into English', '¿Cuánto es 2 + 2?': 'What is 2 + 2?', '¿De qué color es el cielo de día?': 'What color is the daytime sky?',
+  '¿Cuál es el planeta rojo?': 'Which one is the red planet?', '¿Qué fabrica una hoja con la fotosíntesis?': 'What does a leaf make by photosynthesis?',
+  '¿Cuántas patas tiene un insecto?': 'How many legs does an insect have?', '¿Qué animal es un mamífero?': 'Which animal is a mammal?',
+  '¿Qué viaja más rápido?': 'What travels fastest?', '¿Cuál es un número primo?': 'Which one is a prime number?', '¿Qué gas necesitamos para respirar?': 'Which gas do we need to breathe?',
+  '¿Cuál es la capital de Argentina?': 'What is the capital of Argentina?', 'Tirá una moneda cuántica': 'Flip a quantum coin',
+  'El gato de Schrödinger: ¿vivo o muerto?': "Schrödinger's cat: alive or dead?", '¿Quién lava los platos? Que decida el azar': 'Who does the dishes? Let chance decide',
+  'Generá un bit aleatorio de verdad': 'Generate a truly random bit', 'Dado cuántico de 4 caras': 'Roll a 4-sided quantum die', 'Sacá una carta al azar': 'Draw a random card',
+  '¿Esto es un gato?': 'Is this a cat?', '¿Los pingüinos vuelan?': 'Can penguins fly?', '¿El agua hierve a 100 °C al nivel del mar?': 'Does water boil at 100 °C at sea level?',
+  '¿La Tierra gira alrededor del Sol?': 'Does the Earth orbit the Sun?', '¿El diamante está hecho de carbono?': 'Is diamond made of carbon?',
+  // pistas y aprendizajes
+  'Tocá un cable apagado: antes de hacer nada, te muestro qué pasaría.': "Tap a dim cable: I'll preview what happens before anything changes.",
+  'La onda cuántica viaja por los cables encendidos hasta una respuesta.': 'The quantum wave travels along lit cables to an answer.',
+  'Ese cable lleva la onda al NO. Tocalo para ver qué pasa si lo cortás.': 'That cable sends the wave to NO. Tap it to preview cutting it.',
+  'Cortando cables decidís por dónde viaja la onda.': 'Cutting cables decides where the wave goes.',
+  'Dos movimientos: conectá el cable bueno y cortá el malo.': 'Two moves: connect the right cable and cut the wrong one.',
+  'Conectar y cortar: con eso ya podés guiar la onda.': 'Connect and cut: that is all you need to steer the wave.',
+  'Una neurona reparte su onda entre todos sus cables. Mirá la vista previa de cada uno.': 'A neuron splits its wave across all its cables. Preview each one.',
+  'Cada neurona reparte su onda: amplitud ÷ √(cables). Así la probabilidad total no cambia.': 'Each neuron splits its wave: amplitude ÷ √(cables). Total probability stays the same.',
+  'Tres respuestas, misma idea: toda la onda a la correcta.': 'Three answers, same idea: send the whole wave to the right one.',
+  'La IA eligió la traducción correcta.': 'The AI picked the right translation.',
+  'Ahora pedimos 50 % y 50 %: que la onda vaya por los dos caminos a la vez.': 'Now we want 50% / 50%: let the wave take both paths at once.',
+  'Superposición: la IA dio las dos respuestas a la vez hasta que la mediste.': 'Superposition: the AI held both answers at once until you measured it.',
+  'El cable al SÍ está soldado 🔒. El cable π da vuelta la onda (rosa): cresta + valle se anulan.': 'The cable to YES is welded 🔒. A π cable flips the wave (pink): crest + trough cancel.',
+  'Interferencia: la onda se anuló en la respuesta falsa y se reforzó en la verdadera.': 'Interference: the wave cancelled on the false answer and grew on the true one.',
+  'Otra vez el SÍ soldado. Anulalo con rosa y mandá celeste al NO.': 'YES is welded again. Cancel it with pink and send cyan to NO.',
+  'Rosa y celeste se anulan en el SÍ y se suman en el NO.': 'Pink and cyan cancel on YES and add up on NO.',
+  'Tres respuestas. Anulá las falsas y reforzá la verdadera.': 'Three answers. Cancel the false ones and boost the true one.',
+  'Las falsas se cancelan, la verdadera se refuerza: eso es un algoritmo cuántico.': 'False answers cancel, the true one grows: that is a quantum algorithm.',
+  'La neurona 🔥 está caliente: desordena la onda y ahí no hay interferencia. Esquivala.': 'The 🔥 neuron is hot: it scrambles the wave, so nothing interferes there. Route around it.',
+  'Decoherencia: el calor "delata" por dónde pasó la onda y se pierde la interferencia. Por eso los chips cuánticos se enfrían.': 'Decoherence: heat "leaks" which path the wave took, and interference is lost. That is why quantum chips are kept ultra-cold.',
+  'Un espía 👁 mira por dónde pasa la onda y eso rompe la interferencia. Tocá el ojo para taparlo.': 'A spy 👁 watches which path the wave takes, and that breaks interference. Tap the eye to cover it.',
+  'Efecto del observador: si se sabe el camino, no hay interferencia. Igual que en la doble rendija.': 'Observer effect: if the path is known, there is no interference. Just like the double slit.',
+  'Tapá al espía y además anulá el NO con un cable π.': 'Cover the spy and cancel NO with a π cable.',
+  'Sin nadie mirando, la onda vuelve a interferir y la respuesta correcta se refuerza.': 'With nobody watching, the wave interferes again and the right answer grows.',
+  'Superposición: las dos respuestas a la vez, hasta que mediste.': 'Superposition: both answers at once, until you measured.',
+  'Cuatro caminos a la vez. Al medir, el azar cuántico eligió uno.': 'Four paths at once. Measuring let quantum chance pick one.',
+  'Esquivaste el ruido: donde no hay calor, la onda interfiere y la respuesta se refuerza.': 'You dodged the noise: away from the heat, the wave interferes and the answer grows.',
+  'Sin espías mirando, la onda volvió a interferir.': 'With no spies watching, the wave interferes again.',
+  'Interferencia: en las respuestas falsas la onda se anuló (cresta + valle).': 'Interference: on the false answers the wave cancelled (crest + trough).',
+  // capítulos y estilos
+  'Conexiones': 'Connections', 'Conectar, cortar y repartir la onda': 'Connect, cut and split the wave', 'Interferencia': 'Interference',
+  'Fases opuestas que se anulan': 'Opposite phases cancel out', 'Redes profundas': 'Deep networks', 'Más capas y más respuestas': 'More layers, more answers',
+  'Ruido': 'Noise', 'El calor borra la interferencia': 'Heat erases interference', 'El espía': 'The spy', 'Mirar cambia el resultado': 'Looking changes the outcome',
+  'Onda': 'Wave', 'Luz': 'Light',
+  // figuritas
+  'La doble rendija': 'The double slit', 'Los electrones llegan de a uno y aun así dibujan franjas: cada uno pasó por las dos rendijas como onda.': 'Electrons arrive one at a time and still draw stripes: each one went through both slits as a wave.',
+  'El Sol funciona por efecto túnel': 'The Sun runs on tunnelling', 'Dos protones se repelen y, según la física clásica, nunca se tocarían. Atraviesan esa barrera por efecto túnel y así brilla el Sol.': 'Two protons repel, and classically they would never touch. They tunnel through that barrier, and that is how the Sun shines.',
+  'El átomo es una nube': 'The atom is a cloud', 'El electrón no gira como un planeta: es una nube de probabilidad con formas fijas, los orbitales. Este es el 2p.': 'The electron does not orbit like a planet: it is a probability cloud with fixed shapes, the orbitals. This one is 2p.',
+  'El gato de Schrödinger': "Schrödinger's cat", 'Schrödinger lo inventó en 1935 para mostrar lo absurda que parece la superposición a gran escala. En átomos pasa de verdad.': 'Schrödinger made it up in 1935 to show how absurd superposition looks at large scale. In atoms it really happens.',
+  'Entrelazamiento': 'Entanglement', 'Dos partículas entrelazadas dan resultados opuestos aunque estén lejísimos. Einstein lo llamó "acción fantasmal". Nobel de Física 2022.': 'Two entangled particles give opposite results even when far apart. Einstein called it "spooky action". 2022 Nobel Prize in Physics.',
+  'El láser': 'The laser', 'En un láser, millones de fotones salen en la misma fase: una sola onda gigante. Einstein predijo la emisión estimulada en 1917.': 'In a laser, millions of photons leave in the same phase: one giant wave. Einstein predicted stimulated emission in 1917.',
+  'Superconductor flotante': 'Floating superconductor', 'Enfriado con nitrógeno líquido, un superconductor expulsa el campo magnético y deja flotando un imán. Cuántica a simple vista.': 'Cooled with liquid nitrogen, a superconductor expels magnetic fields and levitates a magnet. Quantum physics you can see.',
+  'La hoja cuántica': 'The quantum leaf', 'Hay experimentos que sugieren que la energía de la luz recorre la hoja como onda, por varios caminos a la vez. Todavía se investiga.': 'Some experiments suggest light energy crosses a leaf as a wave, along several paths at once. Still being researched.',
+  'La brújula de los pájaros': "The birds' compass", 'Los petirrojos se orientarían con el campo magnético terrestre gracias a pares de electrones en sus ojos. Hipótesis con mucha evidencia.': "Robins may sense Earth's magnetic field through electron pairs in their eyes. A hypothesis with strong evidence.",
+  'El túnel en tu celular': 'The tunnel in your phone', 'La memoria de tu celular guarda cada foto haciendo que los electrones atraviesen una barrera aislante: efecto túnel.': "Your phone's memory stores every photo by making electrons cross an insulating barrier: quantum tunnelling.",
+  'Relojes atómicos y GPS': 'Atomic clocks and GPS', 'Los satélites GPS llevan relojes atómicos que cuentan saltos cuánticos. Un error de un microsegundo te correría 300 metros.': 'GPS satellites carry atomic clocks that count quantum jumps. A one-microsecond error would put you 300 m off.',
+  'La computadora cuántica': 'The quantum computer', 'Los chips cuánticos trabajan a −273 °C, más frío que el espacio, para que el ruido no destruya la interferencia.': 'Quantum chips run at −273 °C, colder than outer space, so noise does not destroy interference.',
+  'Decoherencia': 'Decoherence', 'Cualquier choque con el entorno "delata" el camino de la onda y borra la interferencia. Es el gran enemigo de las computadoras cuánticas.': "Any bump from the environment leaks the wave's path and erases interference. It is the great enemy of quantum computers.",
+  'Si medís por qué rendija pasa cada electrón, las franjas desaparecen y quedan dos manchas. Saber el camino borra la interferencia.': 'Measure which slit each electron uses and the stripes vanish into two blobs. Knowing the path erases interference.',
+  'Teletransportación cuántica': 'Quantum teleportation', 'En 2017 el satélite chino Micius teletransportó el estado cuántico de fotones a más de 1.000 km. No viaja materia: viaja información.': 'In 2017 the Chinese satellite Micius teleported the quantum state of photons over 1,000 km. No matter travels: information does.',
+  'Pasá el próximo nivel para completarla y descubrir qué es.': 'Beat the next level to complete it and find out what it is.',
+  // ciencia
+  'Superposición': 'Superposition', 'Fase': 'Phase', 'Medición': 'Measurement', 'Redes neuronales cuánticas': 'Quantum neural networks', 'Lo que simplificamos': 'What we simplified',
+  'La onda viaja por todos los cables encendidos a la vez. Cada neurona la reparte: amplitud ÷ √(cables), así la probabilidad total se conserva.': 'The wave travels along every lit cable at once. Each neuron splits it: amplitude ÷ √(cables), so total probability is conserved.',
+  'Un cable π multiplica la amplitud por −1 (e^(iπ) = −1). Celeste es +, rosa es −: la misma onda, cresta o valle.': 'A π cable multiplies the amplitude by −1 (e^(iπ) = −1). Cyan is +, pink is −: the same wave, crest or trough.',
+  'En cada neurona las amplitudes se suman. +½ y −½ dan 0: esa respuesta desaparece. Es la base de los algoritmos cuánticos.': 'Amplitudes add up at each neuron. +½ and −½ make 0: that answer disappears. This is the core of quantum algorithms.',
+  'Regla de Born: la probabilidad de cada respuesta es |amplitud|². Al medir sale una sola, al azar según esas probabilidades.': 'Born rule: the probability of each answer is |amplitude|². Measuring gives just one, at random with those odds.',
+  'Existen: son circuitos cuánticos que se entrenan ajustando sus conexiones y parámetros hasta que dan la respuesta correcta.': 'They exist: quantum circuits trained by adjusting their connections and parameters until they give the right answer.',
+  'Un chip real usa compuertas reversibles y fases continuas. Acá las fases son solo 0 o π, y como dos cables pueden juntarse en una neurona, normalizamos al medir.': 'A real chip uses reversible gates and continuous phases. Here phases are only 0 or π, and since two cables can merge into one neuron, we normalize when measuring.',
+  'La ciencia detrás': 'The science behind it', 'Física cuántica de verdad, en versión simplificada': 'Real quantum physics, simplified',
+  // interfaz
+  'Entrená la IA cuántica': 'Train the quantum AI', 'MOVIMIENTOS': 'MOVES', 'PROBLEMA DEL MOMENTO': 'CURRENT PROBLEM', 'Meta:': 'Goal:', 'cada una': 'each',
+  'Tocá un cable para conectarlo o cortarlo': 'Tap a cable to connect or cut it', 'π invierte la fase (celeste ↔ rosa) · 🔒 soldado': 'π flips the phase (cyan ↔ pink) · 🔒 welded',
+  '👁 tocá el ojo para taparlo': '👁 tap the eye to cover it', ' · 🔥 rompe la interferencia': ' · 🔥 breaks interference', ' · π invierte la fase': ' · π flips the phase',
+  '🔥 caliente: ahí la onda no interfiere · π invierte la fase': '🔥 hot: no interference there · π flips the phase',
+  '🙈 TAPAR OJO': '🙈 COVER EYE', '👁 DESTAPAR': '👁 UNCOVER', '🔒 SOLDADO': '🔒 WELDED', '✂  CORTAR': '✂  CUT', '＋ CONECTAR': '＋ CONNECT',
+  'no se puede cortar': "can't be cut", 'clic para confirmar': 'click to confirm', 'tocá de nuevo para confirmar': 'tap again to confirm',
+  '👁 VISTA PREVIA': '👁 PREVIEW', 'MIDIENDO…': 'MEASURING…', '¡RESUELTO!': 'SOLVED!', 'La IA respondió:': 'The AI answered:', 'Al medir salió:': 'Measured result:',
+  '↺ Otra vez': '↺ Again', 'Capítulos ▶': 'Chapters ▶', 'Siguiente nivel ▶': 'Next level ▶', '↺  Reiniciar': '↺  Restart', '↺ Reintentar': '↺ Retry',
+  'Sin movimientos': 'Out of moves', 'La IA quedó colgada. Probá otra combinación de cables.': 'The AI froze. Try another cable combination.',
+  '◀  Volver': '◀  Back', '◀  Álbum': '◀  Album', 'Capítulos': 'Chapters', 'Álbum cuántico': 'Quantum album', 'NUEVA · 1/2': 'NEW · 1/2', '¡COMPLETA!': 'COMPLETE!', '¡NUEVA!': 'NEW!',
+  'soldado 🔒': 'welded 🔒', '👁 mirando': '👁 watching', '🙈 tapado': '🙈 covered',
+  'onda A': 'wave A', 'onda B': 'wave B', 'onda B (fase opuesta)': 'wave B (opposite phase)', 'se anulan': 'cancel', 'se refuerzan': 'reinforce', 'interfieren': 'interfere',
+  'chip cuántico a −273 °C': 'quantum chip at −273 °C', '¡fusión!': 'fusion!', 'vivo + fantasma': 'alive + ghost', '¡vivo!': 'alive!', 'fantasma': 'ghost',
+  'siempre opuestos': 'always opposite', 'sin decidir…': 'undecided…', 'barrera': 'barrier', '1 µs de error = 300 m': '1 µs error = 300 m',
+  'onda': 'wave', 'ruido': 'noise', '🌡️ calor': '🌡️ heat', 'mirando: 2 manchas': 'watching: 2 blobs', 'sin mirar: franjas': 'not watching: stripes',
+  'Las computadoras cuánticas no adivinan: cancelan las respuestas falsas. ¿Vos podés?': "Quantum computers don't guess. They cancel the wrong answers. Can you?",
+};
+const tr = s => (LANG === 'en' && typeof s === 'string' && EN[s] !== undefined) ? EN[s] : s;
+{ const ft = ctx.fillText.bind(ctx), mt = ctx.measureText.bind(ctx);
+  ctx.fillText = (s, x, y, m) => m === undefined ? ft(tr(s), x, y) : ft(tr(s), x, y, m);
+  ctx.measureText = s => mt(tr(s)); }
+
+
+function rng(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const pc = x => { let c = 0; while (x) { x &= x - 1; c++; } return c; };
+
+// ---------- problemas ----------
+const ONE = {
+  2: [
+    { q: '¿7 es un número primo?', e: '🔢', ok: 'SÍ', bad: ['NO'] },
+    { q: '¿El Sol es una estrella?', e: '☀️', ok: 'SÍ', bad: ['NO'] },
+    { q: '¿La Luna tiene luz propia?', e: '🌙', ok: 'NO', bad: ['SÍ'] },
+    { q: '¿Una araña tiene 8 patas?', e: '🕷️', ok: 'SÍ', bad: ['NO'] },
+    { q: '¿El tomate es una fruta?', e: '🍅', ok: 'SÍ', bad: ['NO'] },
+    { q: '¿En la pampa el trigo se siembra en otoño-invierno?', e: '🌾', ok: 'SÍ', bad: ['NO'] },
+    { q: '¿Las ballenas son peces?', e: '🐋', ok: 'NO', bad: ['SÍ'] },
+    { q: '¿El hielo flota en el agua?', e: '🧊', ok: 'SÍ', bad: ['NO'] },
+  ],
+  3: [
+    { q: 'Traducí GATO al inglés', e: '🐱', ok: 'CAT', bad: ['DOG', 'SUN'] },
+    { q: '¿Cuánto es 2 + 2?', e: '🧮', ok: '4', bad: ['3', '5'] },
+    { q: '¿De qué color es el cielo de día?', e: '🌤️', ok: 'AZUL', bad: ['VERDE', 'ROJO'] },
+    { q: '¿Cuál es el planeta rojo?', e: '🪐', ok: 'MARTE', bad: ['VENUS', 'SATURNO'] },
+    { q: '¿Qué fabrica una hoja con la fotosíntesis?', e: '🌱', ok: 'AZÚCAR', bad: ['SAL', 'HIERRO'] },
+    { q: '¿Cuántas patas tiene un insecto?', e: '🐞', ok: '6', bad: ['4', '8'] },
+    { q: '¿Qué animal es un mamífero?', e: '🐬', ok: 'DELFÍN', bad: ['TIBURÓN', 'PULPO'] },
+  ],
+  4: [
+    { q: '¿Qué viaja más rápido?', e: '🏁', ok: 'LUZ', bad: ['SONIDO', 'AUTO', 'TORTUGA'] },
+    { q: '¿Cuál es un número primo?', e: '🔢', ok: '7', bad: ['4', '6', '9'] },
+    { q: '¿Qué gas necesitamos para respirar?', e: '🫁', ok: 'O₂', bad: ['CO₂', 'He', 'Ne'] },
+    { q: '¿Cuál es la capital de Argentina?', e: '🇦🇷', ok: 'CABA', bad: ['CÓRDOBA', 'ROSARIO', 'SALTA'] },
+  ],
+};
+const HALF = [
+  { q: 'Tirá una moneda cuántica', e: '🪙', l: ['CARA', 'CECA'], x: 'CANTO' },
+  { q: 'El gato de Schrödinger: ¿vivo o muerto?', e: '📦', l: ['VIVO', 'MUERTO'], x: 'ZOMBI' },
+  { q: '¿Quién lava los platos? Que decida el azar', e: '🍽️', l: ['VOS', 'YO'], x: 'EL GATO' },
+  { q: 'Generá un bit aleatorio de verdad', e: '🎲', l: ['0', '1'], x: '2' },
+];
+const UNI = [
+  { q: 'Dado cuántico de 4 caras', e: '🎲', l: ['1', '2', '3', '4'] },
+  { q: 'Sacá una carta al azar', e: '🃏', l: ['♠', '♥', '♦', '♣'] },
+];
+
+// ---------- niveles tutoriales ----------
+// edges: [capaA, iA, capaB, iB, flags]  flags: f = soldado (siempre on), i = inversor π, o = encendido al empezar
+const TUT = [
+  { sizes: [1, 1, 2], labels: ['SÍ', 'NO'], target: [1, 0], q: '¿Esto es un gato?', e: '🐱', kind: 'one', extra: 2,
+    edges: [[0, 0, 1, 0, 'f'], [1, 0, 2, 0, ''], [1, 0, 2, 1, '']],
+    hint: 'Tocá un cable apagado: antes de hacer nada, te muestro qué pasaría.',
+    learn: 'La onda cuántica viaja por los cables encendidos hasta una respuesta.' },
+  { sizes: [1, 1, 2], labels: ['SÍ', 'NO'], target: [1, 0], q: '¿El hielo flota en el agua?', e: '🧊', kind: 'one', extra: 2,
+    edges: [[0, 0, 1, 0, 'f'], [1, 0, 2, 0, 'f'], [1, 0, 2, 1, 'o']],
+    hint: 'Ese cable lleva la onda al NO. Tocalo para ver qué pasa si lo cortás.',
+    learn: 'Cortando cables decidís por dónde viaja la onda.' },
+  { sizes: [1, 1, 2], labels: ['SÍ', 'NO'], target: [1, 0], q: '¿El Sol es una estrella?', e: '☀️', kind: 'one', extra: 2,
+    edges: [[0, 0, 1, 0, 'f'], [1, 0, 2, 0, ''], [1, 0, 2, 1, 'o']],
+    hint: 'Dos movimientos: conectá el cable bueno y cortá el malo.',
+    learn: 'Conectar y cortar: con eso ya podés guiar la onda.' },
+  { sizes: [1, 2, 2], labels: ['SÍ', 'NO'], target: [1, 0], q: '¿7 es un número primo?', e: '🔢', kind: 'one', extra: 2,
+    edges: [[0, 0, 1, 0, 'f'], [0, 0, 1, 1, 'o'], [1, 0, 2, 0, 'o'], [1, 0, 2, 1, ''], [1, 1, 2, 0, ''], [1, 1, 2, 1, 'o']],
+    hint: 'Una neurona reparte su onda entre todos sus cables. Mirá la vista previa de cada uno.',
+    learn: 'Cada neurona reparte su onda: amplitud ÷ √(cables). Así la probabilidad total no cambia.' },
+  { sizes: [1, 1, 3], labels: ['CAT', 'DOG', 'SUN'], target: [1, 0, 0], q: 'Traducí GATO al inglés', e: '🐱', kind: 'one', extra: 2,
+    edges: [[0, 0, 1, 0, 'f'], [1, 0, 2, 0, ''], [1, 0, 2, 1, 'o'], [1, 0, 2, 2, '']],
+    hint: 'Tres respuestas, misma idea: toda la onda a la correcta.',
+    learn: 'La IA eligió la traducción correcta.' },
+  { sizes: [1, 1, 2], labels: ['CARA', 'CECA'], target: [0.5, 0.5], q: 'Tirá una moneda cuántica', e: '🪙', kind: 'half', extra: 2,
+    edges: [[0, 0, 1, 0, 'f'], [1, 0, 2, 0, 'f'], [1, 0, 2, 1, '']],
+    hint: 'Ahora pedimos 50 % y 50 %: que la onda vaya por los dos caminos a la vez.',
+    learn: 'Superposición: la IA dio las dos respuestas a la vez hasta que la mediste.' },
+  { sizes: [1, 2, 2], labels: ['SÍ', 'NO'], target: [0, 1], q: '¿Los pingüinos vuelan?', e: '🐧', kind: 'one', extra: 2,
+    edges: [[0, 0, 1, 0, 'f'], [0, 0, 1, 1, 'f'], [1, 0, 2, 0, 'f'], [1, 0, 2, 1, 'f'], [1, 1, 2, 0, 'i'], [1, 1, 2, 1, 'o']],
+    hint: 'El cable al SÍ está soldado 🔒. El cable π da vuelta la onda (rosa): cresta + valle se anulan.',
+    learn: 'Interferencia: la onda se anuló en la respuesta falsa y se reforzó en la verdadera.' },
+  { sizes: [1, 2, 2], labels: ['SÍ', 'NO'], target: [0, 1], q: '¿La Luna tiene luz propia?', e: '🌙', kind: 'one', extra: 2,
+    edges: [[0, 0, 1, 0, 'f'], [0, 0, 1, 1, 'f'], [1, 0, 2, 0, 'f'], [1, 0, 2, 1, 'f'], [1, 1, 2, 0, 'i'], [1, 1, 2, 1, '']],
+    hint: 'Otra vez el SÍ soldado. Anulalo con rosa y mandá celeste al NO.',
+    learn: 'Rosa y celeste se anulan en el SÍ y se suman en el NO.' },
+  { sizes: [1, 2, 3], labels: ['4', '6', '8'], target: [0, 1, 0], q: '¿Cuántas patas tiene un insecto?', e: '🐞', kind: 'one', extra: 2,
+    edges: [[0, 0, 1, 0, 'f'], [0, 0, 1, 1, 'o'], [1, 0, 2, 0, 'f'], [1, 0, 2, 1, 'o'], [1, 0, 2, 2, ''], [1, 1, 2, 0, 'i'], [1, 1, 2, 1, ''], [1, 1, 2, 2, 'o']],
+    hint: 'Tres respuestas. Anulá las falsas y reforzá la verdadera.',
+    learn: 'Las falsas se cancelan, la verdadera se refuerza: eso es un algoritmo cuántico.' },
+];
+
+// ---------- niveles tutoriales de los capítulos nuevos ----------
+const TUT_R1 = { sizes: [1, 3, 2], labels: ['SÍ', 'NO'], target: [1, 0], q: '¿El agua hierve a 100 °C al nivel del mar?', e: '💧', kind: 'one', extra: 2, hot: [[1, 0]],
+  edges: [[0, 0, 1, 0, 'o'], [0, 0, 1, 1, 'f'], [0, 0, 1, 2, ''], [1, 0, 2, 0, 'f'], [1, 0, 2, 1, 'f'], [1, 1, 2, 0, 'f'], [1, 1, 2, 1, 'fi'], [1, 2, 2, 0, 'f'], [1, 2, 2, 1, 'f']],
+  hint: 'La neurona 🔥 está caliente: desordena la onda y ahí no hay interferencia. Esquivala.',
+  learn: 'Decoherencia: el calor "delata" por dónde pasó la onda y se pierde la interferencia. Por eso los chips cuánticos se enfrían.' };
+const TUT_E1 = { sizes: [1, 2, 2], labels: ['SÍ', 'NO'], target: [1, 0], q: '¿La Tierra gira alrededor del Sol?', e: '🌍', kind: 'one', extra: 2, eyes: [[1, 1]],
+  edges: [[0, 0, 1, 0, 'f'], [0, 0, 1, 1, 'f'], [1, 0, 2, 0, 'f'], [1, 0, 2, 1, 'f'], [1, 1, 2, 0, 'f'], [1, 1, 2, 1, 'fi']],
+  hint: 'Un espía 👁 mira por dónde pasa la onda y eso rompe la interferencia. Tocá el ojo para taparlo.',
+  learn: 'Efecto del observador: si se sabe el camino, no hay interferencia. Igual que en la doble rendija.' };
+const TUT_E2 = { sizes: [1, 2, 2], labels: ['SÍ', 'NO'], target: [1, 0], q: '¿El diamante está hecho de carbono?', e: '💎', kind: 'one', extra: 2, eyes: [[1, 0]],
+  edges: [[0, 0, 1, 0, 'f'], [0, 0, 1, 1, 'f'], [1, 0, 2, 0, 'f'], [1, 0, 2, 1, 'f'], [1, 1, 2, 0, 'fo'], [1, 1, 2, 1, 'i']],
+  hint: 'Tapá al espía y además anulá el NO con un cable π.',
+  learn: 'Sin nadie mirando, la onda vuelve a interferir y la respuesta correcta se refuerza.' };
+
+// ---------- modelo ----------
+// Interruptores: primero los cables (0..E-1) y después los ojos espía (E..E+K-1).
+// Decoherencia: una neurona caliente 🔥 o con el ojo 👁 abierto deja una "marca" del camino.
+// Los caminos con marcas distintas ya no interfieren: se suman sus probabilidades, no sus amplitudes.
+function build(spec) {
+  const nodes = [], idOf = [];
+  spec.sizes.forEach((n, l) => { idOf[l] = []; for (let i = 0; i < n; i++) { idOf[l].push(nodes.length); nodes.push({ l, i, x: 0, y: 0, hot: false, eye: -1, bit: -1 }); } });
+  const edges = spec.edges.map(([la, ia, lb, ib, f]) => ({ from: idOf[la][ia], to: idOf[lb][ib], inv: f.includes('i'), fixed: f.includes('f'), on0: f.includes('f') || f.includes('o') }));
+  const E = edges.length, eyeNodes = [];
+  (spec.hot || []).forEach(([l, i]) => { nodes[idOf[l][i]].hot = true; });
+  (spec.eyes || []).forEach(([l, i]) => { const v = idOf[l][i]; nodes[v].eye = eyeNodes.length; eyeNodes.push(v); });
+  let nb = 0; nodes.forEach(n => { if (n.hot || n.eye >= 0) n.bit = nb++; });
+  const NL = 1 << nb, out = nodes.map(() => []), inc = nodes.map(() => []);
+  edges.forEach((e, k) => { out[e.from].push(k); inc[e.to].push(k); });
+  const tog = []; edges.forEach((e, k) => { if (!e.fixed) tog.push(k); }); eyeNodes.forEach((v, j) => tog.push(E + j));
+  const on0 = new Uint8Array(E + eyeNodes.length); edges.forEach((e, k) => { on0[k] = e.on0 ? 1 : 0; }); eyeNodes.forEach((v, j) => { on0[E + j] = 1; });
+  const lv = Object.assign({}, spec, { nodes, edges, E, eyeNodes, NL, out, inc, outputs: idOf[spec.sizes.length - 1], tog, on0,
+    amp: new Float64Array(nodes.length * NL), onb: new Uint8Array(E + eyeNodes.length) });
+  lv.start = 0; tog.forEach((k, j) => { if (on0[k]) lv.start |= 1 << j; });
+  return lv;
+}
+function evalLv(lv, on, full) {
+  const N = lv.nodes.length, NL = lv.NL, E = lv.E;
+  const amp = full ? new Float64Array(N * NL) : lv.amp, carry = full ? new Float64Array(E * NL) : null, cancel = full ? new Float64Array(N) : null;
+  amp.fill(0); amp[0] = 1;
+  for (let v = 0; v < N; v++) {
+    const b = v * NL, nd = lv.nodes[v];
+    for (let L = 0; L < NL; L++) if (Math.abs(amp[b + L]) < 1e-9) amp[b + L] = 0;
+    if (full) for (let L = 0; L < NL; L++) { let s = 0; for (const e of lv.inc[v]) s += Math.abs(carry[e * NL + L]); if (s > 1e-6) cancel[v] = Math.max(cancel[v], 1 - Math.abs(amp[b + L]) / s); }
+    if (nd.hot || (nd.eye >= 0 && on[E + nd.eye])) {
+      const m = 1 << nd.bit;
+      for (let L = 0; L < NL; L++) if (!(L & m) && amp[b + L]) { amp[b + (L | m)] += amp[b + L]; amp[b + L] = 0; }
+    }
+    const o = lv.out[v]; let k = 0;
+    for (let j = 0; j < o.length; j++) if (on[o[j]]) k++;
+    if (!k) continue;
+    const r = 1 / Math.sqrt(k);
+    for (let L = 0; L < NL; L++) {
+      const a = amp[b + L]; if (!a) continue;
+      for (let j = 0; j < o.length; j++) { const e = o[j]; if (on[e]) { const c = lv.edges[e].inv ? -a * r : a * r; if (carry) carry[e * NL + L] = c; amp[lv.edges[e].to * NL + L] += c; } }
+    }
+  }
+  let total = 0;
+  const I = lv.outputs.map(id => { let s = 0; for (let L = 0; L < NL; L++) s += amp[id * NL + L] ** 2; return s; });
+  I.forEach(x => total += x);
+  const P = I.map(x => total > 1e-9 ? x / total : 0);
+  let ok = total >= MIN_TOTAL;
+  for (let i = 0; i < P.length && ok; i++) if (Math.abs(P[i] - lv.target[i]) > TOL) ok = false;
+  if (!full) return ok;
+  // para dibujar: amplitud neta si es coherente; si hay partes "marcadas", magnitud + bandera de ruido
+  const flat = (arr, n) => {
+    const val = new Float64Array(n), noisy = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      let nz = false; for (let L = 1; L < NL; L++) if (Math.abs(arr[i * NL + L]) > 1e-9) nz = true;
+      if (!nz) { val[i] = arr[i * NL]; continue; }
+      let s = 0; for (let L = 0; L < NL; L++) s += arr[i * NL + L] ** 2;
+      val[i] = Math.sqrt(s); noisy[i] = 1;
+    }
+    return [val, noisy];
+  };
+  const [ampD, noisyV] = flat(amp, N), [carryD, noisyE] = flat(carry, E);
+  return { amp: ampD, carry: carryD, noisyV, noisyE, I, P, total, ok, cancel };
+}
+function solveAll(lv) {
+  const T = lv.tog, k = T.length, on = lv.onb, wins = [];
+  on.set(lv.on0);
+  for (let m = 0; m < (1 << k); m++) {
+    for (let j = 0; j < k; j++) on[T[j]] = (m >> j) & 1;
+    if (evalLv(lv, on, false)) wins.push(m);
+  }
+  return wins;
+}
+const minDist = (s, wins) => wins.reduce((b, w) => Math.min(b, pc(w ^ s)), 99);
+function usesCancel(lv, m) {
+  const on = lv.on0.slice(); lv.tog.forEach((k, j) => { on[k] = (m >> j) & 1; });
+  return evalLv(lv, on, true).cancel.some(c => c > 0.3);
+}
+
+// ---------- generador de niveles ----------
+function genSpec(level, P) {
+  const R = rng(9173 + level * 7919), pick = a => a[R() * a.length | 0];
+  for (let tries = 0; tries < 1500; tries++) {
+    const kind = P.kind || 'one';
+    const nOut = kind === 'uni' ? 4 : kind === 'half' ? 2 : pick(P.outs);
+    const sizes = [1]; for (let h = 0; h < P.nHid; h++) sizes.push(pick(P.hid)); sizes.push(nOut);
+    const edges = [];
+    for (let l = 0; l < sizes.length - 1; l++) {
+      const pairs = [], has = (a, b) => pairs.some(p => p[0] === a && p[1] === b);
+      for (let a = 0; a < sizes[l]; a++) for (let b = 0; b < sizes[l + 1]; b++) if (l === 0 || R() < 0.7) pairs.push([a, b]);
+      for (let a = 0; a < sizes[l]; a++) if (!pairs.some(p => p[0] === a)) pairs.push([a, R() * sizes[l + 1] | 0]);
+      for (let b = 0; b < sizes[l + 1]; b++) if (!pairs.some(p => p[1] === b)) { const a = R() * sizes[l] | 0; if (!has(a, b)) pairs.push([a, b]); }
+      for (const [a, b] of pairs) {
+        let f = '';
+        if (R() < (l === 0 ? 0.12 : (P.invP || 0.33))) f += 'i';
+        if (R() < (l === 0 ? 0.45 : 0.2)) f += 'f';
+        edges.push([l, a, l + 1, b, f]);
+      }
+    }
+    const nTog = edges.filter(e => !e[4].includes('f')).length + (P.eyes || 0);
+    if (nTog < 3 || nTog > 12) continue;
+    const hidden = []; for (let l = 1; l < sizes.length - 1; l++) for (let i = 0; i < sizes[l]; i++) hidden.push([l, i]);
+    hidden.sort(() => R() - 0.5);
+    const nh = P.hot || 0, ne = P.eyes || 0;
+    if (hidden.length < nh + ne) continue;
+    let labels, target, prob;
+    if (kind === 'one') {
+      prob = ONE[nOut][(level * 3 + nOut) % ONE[nOut].length]; const t = R() * nOut | 0;
+      labels = prob.bad.slice().sort(() => R() - 0.5); labels.splice(t, 0, prob.ok);
+      target = labels.map((_, i) => i === t ? 1 : 0);
+    } else if (kind === 'half') { prob = HALF[level % HALF.length]; labels = prob.l.slice(); target = [0.5, 0.5]; }
+    else { prob = UNI[level % UNI.length]; labels = prob.l.slice(); target = [0.25, 0.25, 0.25, 0.25]; }
+    const spec = { sizes, edges, labels, target, q: prob.q, e: prob.e, kind, extra: P.extra, gen: true, hot: hidden.slice(0, nh), eyes: hidden.slice(nh, nh + ne) };
+    const lv = build(spec), wins = solveAll(lv), nT = lv.tog.length;
+    if (!wins.length || wins.length > (1 << nT) / 8) continue;
+    let eyeMask = 0; lv.tog.forEach((k, j) => { if (k >= lv.E) eyeMask |= 1 << j; });
+    const sol = pick(wins); let fm = 0;
+    while (pc(fm) < Math.min(nT, P.want)) fm |= 1 << (R() * nT | 0);
+    const start = (sol ^ fm) | eyeMask;                    // los ojos arrancan abiertos
+    if (wins.includes(start)) continue;
+    const par = minDist(start, wins);
+    if (par < P.want) continue;
+    if (P.cancel && kind === 'one' && !wins.every(w => usesCancel(lv, w))) continue;   // sin interferencia no se resuelve
+    if (ne && !wins.filter(w => pc(w ^ start) === par).every(w => (w & eyeMask) !== eyeMask)) continue;   // hay que tapar algún ojo
+    if (nh) { lv.nodes.forEach(nd => { nd.hot = false; }); const cold = solveAll(lv); if (cold.length === wins.length && cold.every((w, i) => w === wins[i])) continue; }   // el calor tiene que importar
+    let j = 0;
+    for (const e of edges) if (!e[4].includes('f')) { if ((start >> j) & 1) e[4] += 'o'; j++; }
+    return spec;
+  }
+  return null;
+}
+
+// ---------- capítulos ----------
+const PER = 6;
+const G = p => ({ gen: Object.assign({ nHid: 1, hid: [2], outs: [2], want: 2, extra: 2 }, p) });
+const S = s => ({ spec: s });
+const CH = [
+  { name: 'Conexiones', icon: '🔌', col: [69, 227, 255], desc: 'Conectar, cortar y repartir la onda', need: 0, cards: [0, 2, 3],
+    levels: TUT.slice(0, 6).map(S) },
+  { name: 'Interferencia', icon: '〰️', col: [255, 79, 216], desc: 'Fases opuestas que se anulan', need: 10, cards: [5, 7, 8],
+    levels: [S(TUT[6]), S(TUT[7]), S(TUT[8]), G({ cancel: true }), G({ kind: 'half' }), G({ hid: [2, 3], outs: [2, 3], want: 3, cancel: true })] },
+  { name: 'Redes profundas', icon: '🧠', col: [170, 130, 255], desc: 'Más capas y más respuestas', need: 22, cards: [1, 9, 10],
+    levels: [G({ nHid: 2, cancel: true }), G({ nHid: 2, hid: [2, 3], outs: [3], want: 3, cancel: true }), G({ nHid: 2, kind: 'half', want: 3 }),
+      G({ nHid: 2, hid: [2, 3], outs: [3], want: 3, extra: 1, cancel: true }), G({ nHid: 2, hid: [2, 3], kind: 'uni', want: 3 }), G({ nHid: 2, hid: [3], outs: [3, 4], want: 4, extra: 1, cancel: true })] },
+  { name: 'Ruido', icon: '🔥', col: [255, 140, 60], desc: 'El calor borra la interferencia', need: 34, cards: [6, 11, 12],
+    levels: [S(TUT_R1), G({ hid: [3], hot: 1 }), G({ hid: [3], outs: [2, 3], hot: 1 }), G({ nHid: 2, hid: [2, 3], hot: 1, want: 3 }),
+      G({ nHid: 2, hid: [2, 3], outs: [3], hot: 1, want: 3, extra: 1 }), G({ nHid: 2, hid: [3], outs: [3], hot: 2, want: 3, extra: 1 })] },
+  { name: 'El espía', icon: '👁', col: [93, 255, 154], desc: 'Mirar cambia el resultado', need: 46, cards: [4, 13, 14],
+    levels: [S(TUT_E1), S(TUT_E2), G({ hid: [2, 3], eyes: 1 }), G({ nHid: 2, hid: [2, 3], outs: [2, 3], eyes: 1, want: 3 }),
+      G({ nHid: 2, hid: [2, 3], outs: [3], eyes: 2, want: 3, extra: 1 }), G({ nHid: 2, hid: [3], outs: [3], eyes: 1, hot: 1, want: 3, extra: 1 })] },
+];
+const LAST = CH.length * PER;
+const chapOf = n => Math.floor((n - 1) / PER), jOf = n => (n - 1) % PER;
+function levelSpec(n) {
+  const c = chapOf(n), L = CH[c].levels[jOf(n)];
+  if (L.spec) return L.spec;
+  return genSpec(n, L.gen) || (CH[c].levels.find(x => x.spec) || S(TUT[8])).spec;
+}
+
+function layout(lv, seed) {
+  const R = rng(seed * 31 + 7), L = lv.sizes.length;
+  lv.nodes.forEach(n => {
+    const cnt = lv.sizes[n.l], span = cnt > 1 ? Math.min(W - 150, (cnt - 1) * 240) : 0;
+    n.x = W / 2 - span / 2 + (cnt > 1 ? n.i * span / (cnt - 1) : 0);
+    n.y = NET_TOP + n.l * (NET_BOT - NET_TOP) / (L - 1);
+    if (n.l > 0 && n.l < L - 1) { n.x += (R() - 0.5) * 40; n.y += (R() - 0.5) * 30; }
+    n.r = n.l === 0 ? 30 : n.l === L - 1 ? 32 : 20;
+  });
+  lv.edges.forEach(e => {
+    const a = lv.nodes[e.from], b = lv.nodes[e.to], dy = b.y - a.y;
+    e.p = [a.x, a.y, a.x, a.y + dy * 0.5, b.x, b.y - dy * 0.5, b.x, b.y];
+    e.pts = []; for (let i = 0; i <= 30; i++) e.pts.push(bez(e, i / 30));
+    e.wv = []; e.len = 0;   // 61 muestras con su normal, para dibujar ondas y corrientes
+    for (let i = 0; i <= 60; i++) {
+      const t = i / 60, p = bez(e, t), q = bez(e, Math.min(1, t + 0.005)), r = bez(e, Math.max(0, t - 0.005));
+      const tx = q[0] - r[0], ty = q[1] - r[1], l = Math.hypot(tx, ty) || 1;
+      if (i) e.len += Math.hypot(p[0] - e.wv[i - 1][0], p[1] - e.wv[i - 1][1]);
+      e.wv.push([p[0], p[1], -ty / l, tx / l]);
+    }
+  });
+  lv.decor = []; for (let i = 0; i < 70; i++) lv.decor.push({ x: R() * W, y: 300 + R() * 720, r: 1 + R() * 2.5, ph: R() * 6 });
+  lv.decorL = []; for (let i = 0; i < 26; i++) { const a = lv.decor[R() * 70 | 0], b = lv.decor[R() * 70 | 0]; if (Math.hypot(a.x - b.x, a.y - b.y) < 170) lv.decorL.push([a, b]); }
+}
+function bez(e, t) {
+  const p = e.p, u = 1 - t;
+  return [u * u * u * p[0] + 3 * u * u * t * p[2] + 3 * u * t * t * p[4] + t * t * t * p[6],
+          u * u * u * p[1] + 3 * u * u * t * p[3] + 3 * u * t * t * p[5] + t * t * t * p[7]];
+}
+
+// ---------- estado ----------
+let save = { max: 1, stars: {} };
+try { const s = JSON.parse(localStorage.getItem('qbrain_v1')); if (s && s.max) save = s; } catch (e) {}
+LANG = save.lang || 'en';
+if (!save.cards) { save.cards = {}; (save.album || []).forEach(i => { save.cards[i] = 2; }); }
+const persist = () => { try { localStorage.setItem('qbrain_v1', JSON.stringify(save)); } catch (e) {} };
+let level = 1, lv = null, on = null, moves = 0, used = 0, res = null, state = 'title', stT = 0, outcome = -1, gotStars = 0;
+let cardIdx = 0, cardHalf = false, rewardBadge = null, cardView = 0;
+let popups = [], shakeK = -1, shakeT = 0, flashK = -1, flashT = 0, T = 0;
+
+function startLevel(n) {
+  level = n;
+  lv = build(levelSpec(n)); layout(lv, n);
+  lv.wins = solveAll(lv); lv.par = minDist(lv.start, lv.wins);
+  on = lv.on0.slice();
+  moves = lv.par + lv.extra; used = 0; res = evalLv(lv, on, true);
+  state = 'play'; stT = 0; popups = []; sel = -1; prev = null; mode = 'story'; handTarget();
+  if (n > save.max) { save.max = n; persist(); }
+}
+const totalStars = () => { let s = 0; for (let n = 1; n <= LAST; n++) s += save.stars[n] || 0; return s; };
+const chapStars = c => { let s = 0; for (let j = 0; j < PER; j++) s += save.stars[c * PER + j + 1] || 0; return s; };
+const chapOpen = c => totalStars() >= CH[c].need;
+const levelOpen = n => n >= 1 && n <= LAST && chapOpen(chapOf(n)) && (jOf(n) === 0 || (save.stars[n - 1] || 0) > 0);
+const albumDone = () => Object.values(save.cards).filter(v => v >= 2).length;
+let toast = null;
+function say(text) { toast = { text, t: 0 }; }
+function goNext() {
+  const n = level + 1;
+  if (n > LAST) { state = 'chapters'; say(L('¡Terminaste los 5 capítulos! Pronto: el jefe final.', 'You finished all 5 chapters! Coming soon: the final boss.')); return; }
+  if (jOf(n) === 0) {
+    state = 'chapters'; const c = chapOf(n);
+    if (chapOpen(c)) say(L(`¡Capítulo nuevo: ${CH[c].icon} ${CH[c].name}!`, `New chapter: ${CH[c].icon} ${tr(CH[c].name)}!`));
+    else say(L(`Te faltan ${CH[c].need - totalStars()} ★ para abrir "${CH[c].name}". Repetí niveles para sumar estrellas.`, `You need ${CH[c].need - totalStars()} more ★ to open "${tr(CH[c].name)}". Replay levels to earn stars.`));
+    return;
+  }
+  startLevel(n);
+}
+function sample(P) { let u = Math.random(), i = 0; for (; i < P.length - 1; i++) { u -= P[i]; if (u < 0) break; } return i; }
+
+function toggle(k) {
+  if (k >= lv.E) {                                   // ojo espía
+    if (moves <= 0) return;
+    const nd = lv.nodes[lv.eyeNodes[k - lv.E]];
+    on[k] ^= 1; moves--; used++; sel = -1; prev = null;
+    popup(on[k] ? '👁 mirando' : '🙈 tapado', nd.x, nd.y - 46, null, 20); sfx(on[k] ? 'off' : 'on');
+  } else {
+    const e = lv.edges[k], m = e.pts[15];
+    if (e.fixed) { shakeK = k; shakeT = 0.45; popup('soldado 🔒', m[0], m[1] - 14, null, 20); sfx('deny'); return; }
+    if (moves <= 0) return;
+    on[k] ^= 1; moves--; used++; flashK = k; flashT = 0.35; sel = -1; prev = null;
+    sfx(on[k] ? 'on' : 'off');
+  }
+  res = evalLv(lv, on, true); handTarget();
+  if (res.ok) { state = 'measure'; stT = 0; outcome = sample(res.P); sfx('measure'); }
+  else if (moves === 0) { state = 'lost'; stT = 0; sfx('fail'); }
+}
+// vista previa: el primer toque muestra qué pasaría; el segundo, en el mismo cable u ojo, lo confirma
+let sel = -1, prev = null, prevOn = null, ptrType = 'touch';
+function select(k) {
+  if (k === sel) return;
+  sel = k; prev = null;
+  if (k < 0 || state !== 'play') return;
+  if ((k >= lv.E || !lv.edges[k].fixed) && moves > 0) { prevOn = on.slice(); prevOn[k] ^= 1; prev = evalLv(lv, prevOn, true); }
+  if (ptrType !== 'mouse') sfx('sel');
+}
+const eyePos = nd => [nd.x + nd.r + 12, nd.y - nd.r - 10];
+function nearestEdge(x, y) {
+  for (let j = 0; j < lv.eyeNodes.length; j++) {
+    const nd = lv.nodes[lv.eyeNodes[j]], [ex, ey] = eyePos(nd);
+    if (Math.hypot(x - nd.x, y - nd.y) < nd.r + 10 || Math.hypot(x - ex, y - ey) < 26) return lv.E + j;
+  }
+  let best = -1, bd = 30;
+  lv.edges.forEach((e, k) => { for (const p of e.pts) { const dd = Math.hypot(p[0] - x, p[1] - y); if (dd < bd) { bd = dd; best = k; } } });
+  return best;
+}
+// ---------- Modo Stand: arcade contrarreloj, ranking de iniciales y modo atracción ----------
+let mode = 'story', arc = null, att = null, idleT = 0, initials = ['A', 'A', 'A'], initPos = 0;
+const ARC = [S(TUT[0]), S(TUT[1]), G({ invP: 0.35, cancel: true }), G({ invP: 0.35, cancel: true }),
+  G({ hid: [2, 3], outs: [2, 3], want: 3, cancel: true }), G({ nHid: 2, cancel: true }), G({ hid: [3], hot: 1 }), G({ hid: [2, 3], eyes: 1 })];
+const ARC_LATE = [G({ nHid: 2, hid: [2, 3], outs: [3], want: 3, cancel: true }), G({ nHid: 2, hid: [2, 3], hot: 1, want: 3 }),
+  G({ nHid: 2, hid: [2, 3], outs: [2, 3], eyes: 1, want: 3 }), G({ hid: [3], outs: [3], want: 3, cancel: true })];
+const ARC_TIME = 75;
+function prepLevel(spec, seed) {
+  lv = build(spec); layout(lv, seed);
+  lv.wins = solveAll(lv); lv.par = minDist(lv.start, lv.wins);
+  on = lv.on0.slice(); used = 0; res = evalLv(lv, on, true);
+  sel = -1; prev = null; stT = 0; handTarget();
+}
+function curMask() { let m = 0; lv.tog.forEach((k, j) => { if (on[k]) m |= 1 << j; }); return m; }
+function handTarget() {        // primer interruptor que hay que tocar para acercarse a la solución más cercana
+  lv.hand = -1; if (!lv.wins.length) return;
+  const cur = curMask(), w = lv.wins.reduce((b, m) => pc(m ^ cur) < pc(b ^ cur) ? m : b, lv.wins[0]), diff = w ^ cur;
+  for (let j = 0; j < lv.tog.length; j++) if ((diff >> j) & 1) { lv.hand = lv.tog[j]; break; }
+}
+const showHand = () => state === 'play' && lv && lv.hand >= 0 && ((mode === 'arcade' && arc.idx < 2) || (mode === 'story' && level <= 2));
+function startArcade() {
+  mode = 'arcade'; idleT = 0; popups = [];
+  arc = { score: 0, time: ARC_TIME, solved: 0, streak: 0, best: 0, idx: 0, seed: Math.floor(Math.random() * 9973), entry: -1 };
+  arcadePuzzle();
+}
+function arcadeSpec(i) {
+  const Lv = i < ARC.length ? ARC[i] : ARC_LATE[(i + arc.seed) % ARC_LATE.length];
+  return Lv.spec || genSpec(5000 + arc.seed * 131 + i * 17, Lv.gen) || TUT[8];
+}
+function arcadePuzzle() {
+  prepLevel(arcadeSpec(arc.idx), 300 + arc.idx + arc.seed);
+  lv.hint = null; lv.learn = null; moves = 99; state = 'play';
+}
+function arcadeSolved() {
+  const perfect = used <= lv.par;
+  arc.streak = perfect ? arc.streak + 1 : 0; arc.best = Math.max(arc.best, arc.streak);
+  const pts = Math.round(100 * lv.par * (perfect ? 1.5 : 1) * (1 + 0.2 * Math.min(arc.streak, 10)));
+  arc.score += pts; arc.solved++; arc.idx++;
+  arcadePuzzle();
+  popup('+' + pts, W / 2, 330, TH.gold, 44);
+  if (perfect) popup(arc.streak > 1 ? 'PERFECT ×' + arc.streak : 'PERFECT', W / 2, 400, TH.good, 30);
+  sfx('reveal');
+}
+function arcadeSkip() { arc.time = Math.max(0, arc.time - 5); arc.streak = 0; arc.idx++; arcadePuzzle(); popup('−5 s', W - 100, 150, TH.warn, 26); }
+function arcadeOver() {
+  sel = -1; prev = null; stT = 0;
+  const b = save.board || (save.board = []);
+  arc.qualifies = arc.score > 0 && (b.length < 10 || arc.score > b[b.length - 1].s);
+  if (arc.score > (save.bestArc || 0)) save.bestArc = arc.score;
+  persist(); sfx('measure');
+  if (arc.qualifies) { state = 'initials'; initials = (save.lastInit || 'AAA').split(''); initPos = 0; } else state = 'board';
+}
+function commitInitials() {
+  const name = initials.join(''), b = save.board || (save.board = []), entry = { n: name, s: arc.score, p: arc.solved };
+  save.lastInit = name; b.push(entry); b.sort((x, y) => y.s - x.s); save.board = b.slice(0, 10);
+  arc.entry = save.board.indexOf(entry); persist(); state = 'board';
+}
+function startAttract() {
+  mode = 'attract'; state = 'attract'; popups = [];
+  att = { t: 0, done: -1, i: 0, seed: Math.floor(Math.random() * 9999) }; attractPuzzle();
+}
+function attractPuzzle() {
+  const Lv = ARC_LATE[att.i % ARC_LATE.length];
+  prepLevel(genSpec(9000 + att.seed + att.i * 7, Lv.gen) || TUT[8], 77 + att.i);
+  lv.hint = null; moves = 99; att.t = 0; att.done = -1; att.i++;
+}
+function attractStep(dt) {
+  att.t += dt;
+  if (att.done < 0 && att.t > 1.1) {
+    att.t = 0; handTarget();
+    const k = lv.hand; if (k < 0) { attractPuzzle(); return; }
+    on[k] ^= 1; if (k < lv.E) { flashK = k; flashT = 0.35; }
+    res = evalLv(lv, on, true);
+    if (res.ok) { att.done = 0; outcome = sample(res.P); }
+  }
+  if (att.done >= 0) { att.done += dt; if (att.done > 2.4) attractPuzzle(); }
+}
+
+// ---------- dibujo del Modo Stand ----------
+function drawProblemCard() {
+  ctx.save(); if (!TH.dark) { ctx.shadowColor = 'rgba(20,30,60,0.10)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4; }
+  roundRect(20, 96, W - 40, 172, 18); ctx.fillStyle = TH.card; ctx.fill(); ctx.restore();
+  roundRect(20, 96, W - 40, 172, 18); ctx.lineWidth = 1.5; ctx.strokeStyle = TH.cardLine; ctx.stroke();
+  ctx.textAlign = 'left'; ctx.fillStyle = TH.faint; ctx.font = `700 13px ${F}`; ctx.fillText('PROBLEMA DEL MOMENTO', 44, 124);
+  ctx.font = `64px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(lv.e, 90, 190); ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left'; ctx.fillStyle = TH.text; ctx.font = `700 29px ${F}`;
+  const yEnd = wrap(lv.q, 146, 170, W - 200, 34);
+  ctx.fillStyle = TH.good; ctx.font = `700 21px ${F}`; ctx.fillText(goalText(), 146, Math.max(yEnd + 40, 238));
+}
+function drawArcadeHud() {
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  ctx.fillStyle = TH.accent; ctx.font = `700 26px ${F}`; ctx.fillText('WAVEMIND', 26, 46);
+  ctx.fillStyle = TH.sub; ctx.font = `700 15px ${F}`; ctx.fillText(mode === 'attract' ? 'DEMO' : 'ARCADE', 26, 70);
+  BTN.menu = [20, 20, 160, 60];
+  if (mode === 'arcade') {
+    ctx.textAlign = 'center'; ctx.fillStyle = TH.text; ctx.font = `700 38px ${F}`; ctx.fillText(arc.score, W / 2, 56);
+    ctx.fillStyle = TH.faint; ctx.font = `700 13px ${F}`; ctx.fillText(arc.streak > 1 ? `STREAK ×${arc.streak}` : 'SCORE', W / 2, 78);
+    const tl = Math.ceil(arc.time), low = arc.time < 10;
+    ctx.textAlign = 'right'; ctx.fillStyle = low ? TH.warn : TH.text; ctx.font = `700 ${low ? 36 + 4 * Math.abs(Math.sin(T * 8)) : 34}px ${F}`; ctx.fillText(tl + 's', W - 26, 58);
+    roundRect(20, 84, W - 40, 6, 3); ctx.fillStyle = TH.track; ctx.fill();
+    roundRect(20, 84, (W - 40) * Math.min(1, arc.time / ARC_TIME), 6, 3); ctx.fillStyle = low ? TH.warn : TH.good; ctx.fill();
+  }
+  drawProblemCard();
+  ctx.textAlign = 'center';
+  if (mode === 'arcade') {
+    ctx.fillStyle = TH.sub; ctx.font = `18px ${F}`;
+    ctx.fillText(L(`Movimientos: ${used} · perfecto: ${lv.par}`, `Moves: ${used} · perfect: ${lv.par}`), W / 2, 1120);
+    const hasHot = lv.nodes.some(n => n.hot), hasEye = lv.eyeNodes.length > 0;
+    ctx.fillText(hasEye ? L('👁 tocá el ojo para taparlo', '👁 tap the eye to cover it') : hasHot ? L('🔥 ahí la onda no interfiere', '🔥 no interference there') : L('π invierte la fase · 🔒 soldado', 'π flips the phase · 🔒 welded'), W / 2, 1148);
+    button('skip', W / 2 - 120, 1190, 240, 58, L('⏭  Saltar (−5 s)', '⏭  Skip (−5 s)'), TH.sub);
+  }
+}
+function drawHand() {
+  if (!showHand()) return;
+  let px, py;
+  if (lv.hand >= lv.E) { const nd = lv.nodes[lv.eyeNodes[lv.hand - lv.E]]; [px, py] = eyePos(nd); }
+  else [px, py] = lv.edges[lv.hand].pts[15];
+  const c = (T % 1.4) / 1.4, press = c > 0.45 && c < 0.6, lift = press ? 0 : 14 + 8 * Math.sin(c * Math.PI * 2);
+  if (c > 0.5) { const k = (c - 0.5) / 0.5; ctx.lineWidth = 3; ctx.strokeStyle = rgba(TH.ink, 0.6 * (1 - k)); ctx.beginPath(); ctx.arc(px, py, 10 + 40 * k, 0, 7); ctx.stroke(); }
+  ctx.save(); ctx.translate(px + 6, py + 26 + lift); ctx.rotate(-0.25); ctx.font = `54px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 10; ctx.fillText('👆', 0, 0); ctx.restore(); ctx.textBaseline = 'alphabetic';
+}
+function drawAttract() {
+  drawBackground(); drawNet(); drawArcadeHud();
+  if (att.done >= 0) { const n = lv.nodes[lv.outputs[outcome]], k = Math.min(1, att.done / 1.2); ctx.lineWidth = 4; ctx.strokeStyle = rgba(TH.ink, 1 - k); ctx.beginPath(); ctx.arc(n.x, n.y, 30 + 160 * k, 0, 7); ctx.stroke(); }
+  const g = ctx.createLinearGradient(0, 1030, 0, H); g.addColorStop(0, 'rgba(3,6,12,0)'); g.addColorStop(0.35, 'rgba(3,6,12,0.92)'); g.addColorStop(1, 'rgba(3,6,12,0.97)');
+  ctx.fillStyle = g; ctx.fillRect(0, 1030, W, H - 1030);
+  ctx.save(); glowOn(TH.accent, 24); ctx.textAlign = 'center'; ctx.fillStyle = TH.accent; ctx.font = `700 ${46 + 4 * Math.sin(T * 4)}px ${F}`;
+  ctx.fillText(L('TOCÁ PARA JUGAR', 'TAP TO PLAY'), W / 2, 1140); ctx.restore();
+  const b = (save.board || []).slice(0, 3);
+  ctx.textAlign = 'center'; ctx.fillStyle = TH.gold; ctx.font = `700 19px ${F}`;
+  ctx.fillText(b.length ? '🏆 ' + b.map((e, i) => `${i + 1}. ${e.n} ${e.s}`).join('   ') : L('🏆 ¡Sé el primero del ranking!', '🏆 Be the first on the leaderboard!'), W / 2, 1200);
+  ctx.fillStyle = TH.sub; ctx.font = `17px ${F}`; ctx.fillText(L('Las computadoras cuánticas cancelan las respuestas falsas', 'Quantum computers cancel the wrong answers'), W / 2, 1240);
+}
+function drawInitials() {
+  drawBackground(); ctx.textAlign = 'center';
+  ctx.save(); glowOn(TH.gold, 24); ctx.fillStyle = TH.gold; ctx.font = `700 46px ${F}`; ctx.fillText(L('¡NUEVO RÉCORD!', 'NEW HIGH SCORE!'), W / 2, 250); ctx.restore();
+  ctx.fillStyle = TH.text; ctx.font = `700 80px ${F}`; ctx.fillText(arc.score, W / 2, 360);
+  ctx.fillStyle = TH.sub; ctx.font = `20px ${F}`; ctx.fillText(L('Escribí tus iniciales', 'Enter your initials'), W / 2, 430);
+  for (let i = 0; i < 3; i++) {
+    const x = W / 2 + (i - 1) * 150;
+    button('up' + i, x - 50, 470, 100, 64, '▲', TH.accent);
+    roundRect(x - 60, 550, 120, 130, 16); ctx.fillStyle = TH.card; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = i === initPos ? TH.gold : TH.cardLine; ctx.stroke();
+    ctx.textAlign = 'center'; ctx.fillStyle = TH.text; ctx.font = `700 84px ${F}`; ctx.fillText(initials[i], x, 646); BTN['slot' + i] = [x - 60, 550, 120, 130];
+    button('dn' + i, x - 50, 696, 100, 64, '▼', TH.accent);
+  }
+  button('ok', W / 2 - 140, 820, 280, 76, 'OK', TH.good, true);
+}
+function drawBoard() {
+  drawBackground(); ctx.textAlign = 'center';
+  ctx.fillStyle = TH.gold; ctx.font = `700 42px ${F}`; ctx.fillText(L('🏆 RANKING', '🏆 LEADERBOARD'), W / 2, 110);
+  if (arc && mode === 'arcade') { ctx.fillStyle = TH.sub; ctx.font = `20px ${F}`; ctx.fillText(L(`Tu puntaje: ${arc.score} · ${arc.solved} resueltos · racha ×${arc.best}`, `Your score: ${arc.score} · ${arc.solved} solved · best streak ×${arc.best}`), W / 2, 156); }
+  const b = save.board || [];
+  if (!b.length) { ctx.fillStyle = TH.faint; ctx.font = `22px ${F}`; ctx.fillText(L('Todavía no hay puntajes', 'No scores yet'), W / 2, 400); }
+  b.forEach((e, i) => {
+    const y = 200 + i * 72, me = arc && mode === 'arcade' && i === arc.entry;
+    roundRect(60, y, W - 120, 60, 14); ctx.fillStyle = me ? rgba(TH.pos, 0.18) : TH.card; ctx.fill(); ctx.lineWidth = me ? 3 : 1.5; ctx.strokeStyle = me ? TH.accent : TH.cardLine; ctx.stroke();
+    ctx.textAlign = 'left'; ctx.fillStyle = i < 3 ? TH.gold : TH.sub; ctx.font = `700 26px ${F}`; ctx.fillText((i + 1) + '.', 84, y + 40);
+    ctx.fillStyle = TH.text; ctx.fillText(e.n, 150, y + 40);
+    ctx.fillStyle = TH.faint; ctx.font = `17px ${F}`; ctx.fillText(L(`${e.p || 0} resueltos`, `${e.p || 0} solved`), 260, y + 39);
+    ctx.textAlign = 'right'; ctx.fillStyle = TH.text; ctx.font = `700 28px ${F}`; ctx.fillText(e.s, W - 84, y + 41);
+  });
+  button('again2', W / 2 - 250, 950, 240, 72, L('▶  JUGAR', '▶  PLAY'), TH.good, true);
+  button('menu2', W / 2 + 10, 950, 240, 72, L('Menú', 'Menu'), TH.sub);
+}
+function popup(text, x, y, col, size) { popups.push({ text, x, y, col, size: size || 22, t: 0, life: 1.1 }); }
+
+// ---------- sonido ----------
+let AC = null;
+function tone(f, d, type, vol, when) {
+  if (!AC) return; const t0 = AC.currentTime + (when || 0), o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(f, t0);
+  g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol || 0.12, t0 + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+  o.connect(g).connect(AC.destination); o.start(t0); o.stop(t0 + d + 0.02);
+}
+function sfx(k) {
+  if (k === 'on') { tone(660, 0.12, 'triangle'); tone(990, 0.1, 'sine', 0.05, 0.04); }
+  else if (k === 'off') tone(330, 0.12, 'triangle');
+  else if (k === 'reveal') [784, 988, 1175, 1568, 1976].forEach((f, i) => tone(f, 0.25, 'sine', 0.06, 0.05 + i * 0.07));
+  else if (k === 'sel') tone(880, 0.06, 'sine', 0.04);
+  else if (k === 'deny') tone(140, 0.18, 'square', 0.05);
+  else if (k === 'measure') [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.3, 'sine', 0.09, i * 0.09));
+  else if (k === 'fail') { tone(220, 0.35, 'sawtooth', 0.05); tone(160, 0.45, 'sawtooth', 0.05, 0.15); }
+}
+
+// ---------- entrada ----------
+const BTN = {};
+function inRect(x, y, r) { return r && x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3]; }
+cv.addEventListener('pointerdown', ev => {
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  idleT = 0;
+  const b = cv.getBoundingClientRect(), x = (ev.clientX - b.left - ox) / scale, y = (ev.clientY - b.top - oy) / scale;
+  if (state === 'attract') { startArcade(); return; }
+  if (state === 'title') {
+    if (inRect(x, y, BTN.play)) startArcade();
+    else if (inRect(x, y, BTN.story)) { mode = 'story'; state = 'chapters'; }
+    else if (inRect(x, y, BTN.album)) state = 'album';
+    else if (inRect(x, y, BTN.board)) { mode = 'story'; state = 'board'; }
+    else if (inRect(x, y, BTN.science)) state = 'science';
+    else if (inRect(x, y, BTN.theme)) cycleTheme();
+    else if (inRect(x, y, BTN.lang)) { LANG = LANG === 'en' ? 'es' : 'en'; save.lang = LANG; persist(); }
+    return;
+  }
+  if (state === 'initials') {
+    for (let i = 0; i < 3; i++) {
+      const step = inRect(x, y, BTN['up' + i]) ? -1 : inRect(x, y, BTN['dn' + i]) ? 1 : 0;
+      if (step) { initials[i] = String.fromCharCode(65 + ((initials[i].charCodeAt(0) - 65 + step + 26) % 26)); initPos = i; sfx('sel'); }
+      if (inRect(x, y, BTN['slot' + i])) initPos = i;
+    }
+    if (inRect(x, y, BTN.ok)) commitInitials();
+    return;
+  }
+  if (state === 'board') { if (inRect(x, y, BTN.again2)) startArcade(); else if (inRect(x, y, BTN.menu2)) { mode = 'story'; state = 'title'; } return; }
+  if (state === 'science') { if (inRect(x, y, BTN.back)) state = 'title'; return; }
+  if (state === 'chapters') {
+    if (inRect(x, y, BTN.back)) { state = 'title'; return; }
+    for (let n = 1; n <= LAST; n++) if (inRect(x, y, BTN['lv' + n])) { startLevel(n); return; }
+    return;
+  }
+  if (state === 'album') { if (inRect(x, y, BTN.back)) state = 'title'; else for (let i = 0; i < CARDS.length; i++) if (inRect(x, y, BTN['card' + i])) { cardView = i; state = 'card'; } return; }
+  if (state === 'card') { if (inRect(x, y, BTN.back)) state = 'album'; return; }
+  if (state === 'won') { if (inRect(x, y, BTN.next)) goNext(); else if (inRect(x, y, BTN.again)) startLevel(level); return; }
+  if (state === 'lost') { if (inRect(x, y, BTN.retry)) startLevel(level); return; }
+  if (state !== 'play') return;
+  if (mode === 'arcade') {                         // en el stand: un toque = un cambio, sin confirmar
+    if (inRect(x, y, BTN.skip)) { arcadeSkip(); return; }
+    if (inRect(x, y, BTN.menu)) { mode = 'story'; state = 'title'; return; }
+    const k = nearestEdge(x, y); if (k >= 0) toggle(k);
+    return;
+  }
+  if (inRect(x, y, BTN.restart)) { startLevel(level); return; }
+  if (inRect(x, y, BTN.menu)) { state = 'chapters'; return; }
+  if (inRect(x, y, BTN.theme)) { cycleTheme(); return; }
+  ptrType = ev.pointerType || 'touch';
+  const k = nearestEdge(x, y);
+  if (k < 0) { select(-1); return; }
+  if (k < lv.E && lv.edges[k].fixed) { select(k); toggle(k); return; }
+  if (k === sel) toggle(k); else select(k);
+});
+cv.addEventListener('pointermove', ev => {
+  if (ev.pointerType !== 'mouse' || state !== 'play') return;
+  ptrType = 'mouse';
+  const b = cv.getBoundingClientRect(), x = (ev.clientX - b.left - ox) / scale, y = (ev.clientY - b.top - oy) / scale;
+  select(nearestEdge(x, y));
+});
+addEventListener('keydown', ev => {
+  idleT = 0;
+  if (state === 'initials') {
+    if (/^[a-z]$/i.test(ev.key)) { initials[initPos] = ev.key.toUpperCase(); initPos = Math.min(2, initPos + 1); }
+    else if (ev.key === 'Backspace') initPos = Math.max(0, initPos - 1);
+    else if (ev.key === 'Enter') commitInitials();
+    return;
+  }
+  if (ev.key === 'r' && state === 'play' && mode === 'story') startLevel(level);
+  if (ev.key === 'Enter' && state === 'won') goNext();
+});
+
+// ---------- estilos ----------
+const F = "'Space Grotesk', 'Segoe UI', system-ui, sans-serif";
+const THEMES = {
+  onda: { name: 'Onda', dark: true, cable: 'wave', node: 'ring', bg: '#03060c', glow: 'rgba(30,70,110,0.30)',
+    text: '#eef6ff', sub: '#9fb3c4', faint: '#62788c', accent: '#45e3ff', card: 'rgba(14,26,40,0.92)', cardLine: 'rgba(69,227,255,0.3)',
+    pos: [69, 227, 255], neg: [255, 79, 216], good: '#5dff9a', warn: '#ff8a5a', gold: '#ffd84a', idle: 'rgba(150,180,210,0.30)', dead: 'rgba(150,170,190,0.4)',
+    fixedC: '#323d48', nodeFill: '#0b1622', nodeIdle: '#2b3b4b', panel: 'rgba(10,20,32,0.97)', shade: 'rgba(2,5,10,0.55)', track: '#16212c',
+    hint: '#ffe69a', hintBg: 'rgba(255,216,74,0.08)', ink: [255, 255, 255], onCore: '#04070d' },
+  chip: { name: 'Chip', dark: true, cable: 'trace', node: 'transmon', bg: '#060a18', glow: 'rgba(60,50,20,0.25)',
+    text: '#f6eed8', sub: '#b4a581', faint: '#7a6e52', accent: '#e8b85a', card: 'rgba(16,20,38,0.94)', cardLine: 'rgba(214,170,80,0.45)',
+    pos: [90, 220, 255], neg: [255, 100, 200], good: '#7dffb0', warn: '#ff8a5a', gold: '#e8b85a', idle: 'rgba(214,170,80,0.30)', dead: 'rgba(214,170,80,0.5)',
+    fixedC: '#4a3812', nodeFill: '#0d1226', nodeIdle: '#6b5524', panel: 'rgba(12,16,32,0.97)', shade: 'rgba(2,4,10,0.6)', track: '#1c2036',
+    hint: '#f3d79a', hintBg: 'rgba(232,184,90,0.08)', ink: [255, 255, 255], onCore: '#060a18' },
+  luz: { name: 'Luz', dark: false, cable: 'soft', node: 'dot', bg: '#f3f5fa', glow: '',
+    text: '#141b2d', sub: '#566079', faint: '#8d97ab', accent: '#0a8fd0', card: '#ffffff', cardLine: '#dce2ee',
+    pos: [0, 160, 225], neg: [225, 40, 165], good: '#0f9d4f', warn: '#e0592a', gold: '#f0a500', idle: 'rgba(110,120,150,0.38)', dead: 'rgba(110,120,150,0.5)',
+    fixedC: '#d3d9e4', nodeFill: '#ffffff', nodeIdle: '#c4cbd8', panel: '#ffffff', shade: 'rgba(235,239,247,0.65)', track: '#e4e8f0',
+    hint: '#6b4a00', hintBg: 'rgba(240,165,0,0.13)', ink: [20, 27, 45], onCore: '#ffffff' },
+};
+const THEME_KEYS = ['onda', 'chip', 'luz'];
+let TH = THEMES[save.theme] || THEMES.onda;
+function cycleTheme() { save.theme = THEME_KEYS[(THEME_KEYS.indexOf(save.theme || 'onda') + 1) % 3]; TH = THEMES[save.theme]; persist(); }
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const phase = (s, a) => rgba(s >= 0 ? TH.pos : TH.neg, a);
+try { if (document.fonts) { document.fonts.load('700 20px "Space Grotesk"'); document.fonts.load('400 20px "Space Grotesk"'); } } catch (e) {}
+
+// ---------- dibujo ----------
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function wrap(text, x, y, maxW, lh) {
+  const words = String(tr(text)).split(' '); let line = '', yy = y;
+  for (const w of words) { const t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > maxW && line) { ctx.fillText(line, x, yy); line = w; yy += lh; } else line = t; }
+  ctx.fillText(line, x, yy); return yy;
+}
+function button(key, x, y, w, h, text, col, strong) {
+  BTN[key] = [x, y, w, h]; col = col || TH.accent;
+  roundRect(x, y, w, h, h / 2);
+  ctx.fillStyle = strong ? col : (TH.dark ? 'rgba(255,255,255,0.05)' : '#ffffff'); ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.stroke();
+  ctx.fillStyle = strong ? (TH.dark ? TH.bg : '#ffffff') : col; ctx.font = `700 ${h > 60 ? 25 : 21}px ${F}`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x + w / 2, y + h / 2 + 1); ctx.textBaseline = 'alphabetic';
+}
+function curve(e, dx) { const p = e.p; ctx.beginPath(); ctx.moveTo(p[0] + dx, p[1]); ctx.bezierCurveTo(p[2] + dx, p[3], p[4] + dx, p[5], p[6] + dx, p[7]); }
+// recorre el cable entre las muestras i0..i1; si wave ≠ 0 dibuja una onda que viaja hacia la salida
+function polyPath(e, i0, i1, dx, wave) {
+  const K = e.len / 46; ctx.beginPath();
+  for (let i = i0; i <= i1; i++) {
+    const s = e.wv[i], off = wave ? wave * Math.sin(2 * Math.PI * K * (i / 60 - 1) - T * 6) : 0;
+    const x = s[0] + s[2] * off + dx, y = s[1] + s[3] * off;
+    if (i === i0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+}
+function goalText() {
+  const t = lv.target, lb = lv.labels.map(tr), g = tr('Meta:') + ' ';
+  if (lv.kind === 'one') return g + lb[t.indexOf(1)] + ' 100 %';
+  if (lv.kind === 'uni') return g + '25 % ' + tr('cada una');
+  return g + lb.filter((_, i) => t[i] > 0).join(' 50 % · ') + ' 50 %' + (t.some(v => v === 0) ? ' · ' + lb[t.indexOf(0)] + ' 0 %' : '');
+}
+function stars(n, x, y, size) {
+  ctx.font = `${size}px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (let i = 0; i < 3; i++) { ctx.fillStyle = i < n ? TH.gold : TH.track; ctx.fillText('★', x + (i - 1) * size * 1.1, y); }
+  ctx.textBaseline = 'alphabetic';
+}
+
+function drawBackground() {
+  ctx.fillStyle = TH.bg; ctx.fillRect(0, 0, W, H);
+  if (!TH.dark) {
+    for (const [x, y, c] of [[110, 300, TH.pos], [640, 980, TH.neg]]) {
+      const g = ctx.createRadialGradient(x, y, 10, x, y, 460); g.addColorStop(0, rgba(c, 0.13)); g.addColorStop(1, rgba(c, 0));
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+    ctx.fillStyle = 'rgba(20,30,60,0.08)'; for (let x = 18; x < W; x += 34) for (let y = 18; y < H; y += 34) ctx.fillRect(x, y, 2, 2);
+    return;
+  }
+  const g = ctx.createRadialGradient(W / 2, 640, 40, W / 2, 640, 640);
+  g.addColorStop(0, TH.glow); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if (TH.cable === 'trace') {
+    ctx.strokeStyle = 'rgba(214,170,80,0.045)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = 0; x <= W; x += 40) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let y = 0; y <= H; y += 40) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+  }
+  if (!lv) return;
+  ctx.lineWidth = 1.2;
+  for (const [a, b] of lv.decorL) {
+    ctx.strokeStyle = TH.cable === 'trace' ? 'rgba(214,170,80,0.10)' : 'rgba(80,120,170,0.08)'; ctx.beginPath(); ctx.moveTo(a.x, a.y);
+    if (TH.cable === 'trace') ctx.lineTo(b.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  for (const d of lv.decor) {
+    const al = 0.10 + 0.08 * Math.sin(T * 1.3 + d.ph);
+    if (TH.cable === 'trace') { ctx.fillStyle = `rgba(214,170,80,${al})`; ctx.fillRect(d.x - 2, d.y - 2, 4, 4); }
+    else { ctx.fillStyle = `rgba(110,160,220,${al})`; ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 7); ctx.fill(); }
+  }
+}
+
+function drawCable(e, k, ON, R) {
+  const dx = k === shakeK && shakeT > 0 ? Math.sin(shakeT * 70) * 5 : 0;
+  const c = ON[k] ? R.carry[k] : 0, a = Math.abs(c), live = ON[k] && a > 1e-9;
+  const segs = e.inv ? [[0, 30, -c], [30, 60, c]] : [[0, 60, c]];
+  const dots = () => {
+    for (let j = 0; j < 5; j++) {
+      const t = (T * 0.55 + j / 5) % 1, s = e.wv[Math.round(t * 60)], cc = e.inv && t < 0.5 ? -c : c;
+      ctx.beginPath(); ctx.arc(s[0] + dx, s[1], 2.5 + 3 * a, 0, 7);
+      if (TH.dark) { ctx.fillStyle = phase(cc, 0.95); ctx.fill(); }
+      else { ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = phase(cc, 1); ctx.stroke(); }
+    }
+  };
+  if (e.fixed && TH.cable !== 'trace') { ctx.lineWidth = 11; ctx.strokeStyle = TH.fixedC; curve(e, dx); ctx.stroke(); }
+  if (!ON[k]) {
+    ctx.setLineDash([7, 9]); ctx.lineWidth = 2.5; ctx.strokeStyle = e.inv ? phase(-1, 0.4) : TH.idle; curve(e, dx); ctx.stroke(); ctx.setLineDash([]);
+  } else if (live && R.noisyE[k]) {                 // onda desordenada por calor o por un espía: ruido sin fase
+    if (TH.cable === 'trace') { ctx.lineWidth = 8; ctx.strokeStyle = '#3a2c0e'; curve(e, dx); ctx.stroke(); }
+    ctx.save(); if (TH.dark) { ctx.shadowColor = rgba(TH.ink, 0.8); ctx.shadowBlur = 8; }
+    ctx.lineWidth = 1.8 + 2 * a; ctx.strokeStyle = rgba(TH.ink, 0.45 + 0.4 * a);
+    const fr = Math.floor(T * 14); ctx.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const s = e.wv[i], off = (hr(i * 13 + fr * 101 + k * 7) - 0.5) * (5 + 14 * a), xx = s[0] + s[2] * off + dx, yy = s[1] + s[3] * off;
+      if (i) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy);
+    }
+    ctx.stroke(); ctx.restore();
+  } else if (TH.cable === 'trace') {
+    ctx.lineWidth = 8; ctx.strokeStyle = '#3a2c0e'; curve(e, dx); ctx.stroke();
+    ctx.lineWidth = 4; ctx.strokeStyle = e.fixed ? '#e8c06a' : '#a97e34'; curve(e, dx); ctx.stroke();
+    if (live) {
+      ctx.save(); ctx.shadowBlur = 12;
+      for (const [i0, i1, s] of segs) { ctx.shadowColor = phase(s, 1); ctx.lineWidth = 1.5 + 2.5 * a; ctx.strokeStyle = phase(s, 0.95); polyPath(e, i0, i1, dx, 0); ctx.stroke(); }
+      ctx.restore(); dots();
+    }
+  } else if (!live) {
+    ctx.lineWidth = 3; ctx.strokeStyle = TH.dead; curve(e, dx); ctx.stroke();
+  } else if (TH.cable === 'wave') {
+    ctx.lineWidth = 1.5;
+    for (const [i0, i1, s] of segs) { ctx.strokeStyle = phase(s, 0.22); polyPath(e, i0, i1, dx, 0); ctx.stroke(); }
+    ctx.save(); ctx.shadowBlur = 12;
+    for (const [i0, i1, s] of segs) {
+      ctx.shadowColor = phase(s, 1); ctx.lineWidth = 2 + 2.5 * a; ctx.strokeStyle = phase(s, 0.55 + 0.45 * a);
+      polyPath(e, i0, i1, dx, (3 + 10 * a) * Math.sign(s)); ctx.stroke();
+    }
+    ctx.restore();
+  } else {
+    ctx.lineCap = 'round';
+    for (const [i0, i1, s] of segs) { ctx.lineWidth = 3 + 7 * a; ctx.strokeStyle = phase(s, 0.85); polyPath(e, i0, i1, dx, 0); ctx.stroke(); }
+    ctx.lineCap = 'butt'; dots();
+  }
+  if (e.fixed && TH.cable === 'trace') for (const i of [7, 53]) { ctx.beginPath(); ctx.arc(e.wv[i][0] + dx, e.wv[i][1], 5.5, 0, 7); ctx.fillStyle = '#e8c06a'; ctx.fill(); }
+  if (k === flashK && flashT > 0) { ctx.lineWidth = 10; ctx.strokeStyle = rgba(TH.ink, flashT); curve(e, dx); ctx.stroke(); }
+  const badges = []; if (e.inv) badges.push('π'); if (e.fixed) badges.push('🔒');
+  badges.forEach((bt, i) => {
+    const p = e.pts[badges.length === 1 ? 15 : (i ? 18 : 12)], x = p[0] + dx, y = p[1];
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (bt === 'π') {
+      ctx.beginPath(); ctx.arc(x, y, 12, 0, 7); ctx.fillStyle = TH.nodeFill; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = phase(-1, 1); ctx.stroke();
+      ctx.fillStyle = phase(-1, 1); ctx.font = `700 17px ${F}`; ctx.fillText('π', x, y + 1);
+    } else { ctx.font = `15px ${F}`; ctx.fillText('🔒', x, y); }
+    ctx.textBaseline = 'alphabetic';
+  });
+}
+
+function nodePath(n) {
+  const r = n.r;
+  if (TH.node === 'transmon') {
+    if (n.l === 0 || n.l === lv.sizes.length - 1) { roundRect(n.x - r, n.y - r, 2 * r, 2 * r, 9); return; }
+    const L = r * 1.3, w = r * 0.55, pts = [[-w, -L], [w, -L], [w, -w], [L, -w], [L, w], [w, w], [w, L], [-w, L], [-w, w], [-L, w], [-L, -w], [-w, -w]];
+    ctx.beginPath(); pts.forEach(([px, py], i) => i ? ctx.lineTo(n.x + px, n.y + py) : ctx.moveTo(n.x + px, n.y + py)); ctx.closePath(); return;
+  }
+  ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7);
+}
+function drawEye(x, y, open, s) {
+  s = s || 1; ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  const blink = open && (T % 4) > 3.85 ? 0.15 : 1;
+  if (open) { ctx.save(); glowOn('#5dff9a', 14 + 6 * Math.sin(T * 5)); }
+  ctx.beginPath(); ctx.moveTo(-17, 0); ctx.quadraticCurveTo(0, -15 * blink, 17, 0); ctx.quadraticCurveTo(0, 15 * blink, -17, 0); ctx.closePath();
+  ctx.fillStyle = open ? '#f4fff8' : rgba(TH.ink, 0.25); ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = open ? '#5dff9a' : TH.sub; ctx.stroke();
+  if (open) { ctx.restore(); ctx.beginPath(); ctx.arc(Math.sin(T * 1.7) * 3, 0, 5.5 * blink, 0, 7); ctx.fillStyle = '#0b1622'; ctx.fill(); ctx.beginPath(); ctx.arc(1.5 + Math.sin(T * 1.7) * 3, -2, 1.8 * blink, 0, 7); ctx.fillStyle = '#fff'; ctx.fill(); }
+  else { ctx.strokeStyle = TH.sub; ctx.lineWidth = 2; for (const lx of [-9, 0, 9]) { ctx.beginPath(); ctx.moveTo(lx, 4); ctx.lineTo(lx * 1.2, 10); ctx.stroke(); } }
+  ctx.restore();
+}
+function drawNode(n, v, a, hot, cancel, noisy, eyeOpen) {
+  const I = Math.min(1, a * a), lit = I > 0.01, col = noisy ? rgba(TH.ink, 0.95) : phase(a, 1);
+  if (n.hot) { ctx.save(); glowOn('#ff7a2a', 24); ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 8 + 2 * Math.sin(T * 9 + v), 0, 7); ctx.lineWidth = 3; ctx.strokeStyle = `rgba(255,120,40,${0.55 + 0.3 * Math.sin(T * 7 + v)})`; ctx.stroke(); ctx.restore(); }
+  ctx.save();
+  if (TH.dark) { if (lit || hot) { ctx.shadowColor = hot ? '#fff' : col; ctx.shadowBlur = hot ? 50 : 10 + 28 * I; } }
+  else { ctx.shadowColor = hot ? col : 'rgba(20,30,60,0.18)'; ctx.shadowBlur = hot ? 40 : 14; ctx.shadowOffsetY = hot ? 0 : 4; }
+  nodePath(n); ctx.fillStyle = hot ? (TH.dark ? '#e9fbff' : rgba(TH.pos, 0.3)) : TH.nodeFill; ctx.fill(); ctx.restore();
+  nodePath(n); ctx.lineWidth = 3; ctx.strokeStyle = lit ? col : TH.nodeIdle; ctx.stroke();
+  if (lit && !hot) {
+    const rr = n.r * (0.32 + 0.45 * Math.sqrt(I)) * (1 + 0.08 * Math.sin(T * 5 + v));
+    if (noisy) { ctx.fillStyle = col; for (let i = 0; i < 9; i++) { const ang = hr(i + Math.floor(T * 12) * 9 + v) * 7, d = hr(i * 3 + Math.floor(T * 12) + v) * rr; ctx.fillRect(n.x + Math.cos(ang) * d - 2, n.y + Math.sin(ang) * d - 2, 4, 4); } }
+    else { ctx.beginPath(); ctx.arc(n.x, n.y, rr, 0, 7); ctx.fillStyle = col; ctx.globalAlpha = 0.88; ctx.fill(); ctx.globalAlpha = 1; }
+  }
+  if (n.l === 0) { ctx.fillStyle = lit ? TH.onCore : TH.sub; ctx.font = `700 22px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Q', n.x, n.y + 1); ctx.textBaseline = 'alphabetic'; }
+  if (n.hot) { ctx.font = `20px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🔥', n.x + n.r + 10, n.y - n.r - 8); ctx.textBaseline = 'alphabetic'; }
+  if (n.eye >= 0) { const [ex, ey] = eyePos(n); drawEye(ex, ey, eyeOpen); }
+  if (cancel > 0.3) sparks(n.x, n.y, n.r);
+}
+function sparks(x, y, r) {
+  ctx.strokeStyle = rgba(TH.ink, 0.75); ctx.lineWidth = 2;
+  for (let i = 0; i < 4; i++) {
+    const ang = T * 2.3 + i * Math.PI / 2 + Math.sin(T * 9 + i) * 0.4, rr = r + 8 + 3 * Math.sin(T * 13 + i * 2);
+    const px = x + Math.cos(ang) * rr, py = y + Math.sin(ang) * rr;
+    ctx.beginPath(); ctx.moveTo(px - 4, py - 4); ctx.lineTo(px + 4, py + 4); ctx.moveTo(px + 4, py - 4); ctx.lineTo(px - 4, py + 4); ctx.stroke();
+  }
+}
+
+function drawNet() {
+  const R = prev || res, ON = prev ? prevOn : on;
+  if (sel >= 0) {
+    ctx.strokeStyle = rgba(TH.ink, 0.14 + 0.1 * Math.sin(T * 8));
+    if (sel >= lv.E) { const nd = lv.nodes[lv.eyeNodes[sel - lv.E]]; ctx.lineWidth = 10; ctx.beginPath(); ctx.arc(nd.x, nd.y, nd.r + 16, 0, 7); ctx.stroke(); }
+    else { ctx.lineWidth = 18; curve(lv.edges[sel], 0); ctx.stroke(); }
+  }
+  lv.edges.forEach((e, k) => drawCable(e, k, ON, R));
+  const L = lv.sizes.length;
+  lv.nodes.forEach((n, v) => { if (n.l < L - 1) drawNode(n, v, R.amp[v], false, R.cancel[v], R.noisyV[v], n.eye >= 0 && ON[lv.E + n.eye]); });
+  lv.outputs.forEach((id, i) => {
+    const n = lv.nodes[id], P = R.P[i], tg = lv.target[i];
+    const good = Math.abs(P - tg) <= TOL && R.total >= MIN_TOTAL;
+    drawNode(n, id, R.amp[id], (state === 'measure' || state === 'won' || (state === 'attract' && att.done >= 0)) && i === outcome, R.cancel[id], R.noisyV[id], false);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = TH.text; ctx.font = `700 ${lv.labels[i].length > 6 ? 22 : 28}px ${F}`; ctx.fillText(lv.labels[i], n.x, n.y + 70);
+    const bw = 110, bx = n.x - bw / 2, by = n.y + 84;
+    roundRect(bx, by, bw, 12, 6); ctx.fillStyle = TH.track; ctx.fill();
+    if (P > 0.005) { roundRect(bx, by, Math.max(12, bw * P), 12, 6); ctx.fillStyle = good ? TH.good : phase(1, 0.6); ctx.fill(); }
+    ctx.fillStyle = TH.text; ctx.fillRect(bx + bw * tg - 1.5, by - 5, 3, 22);
+    ctx.font = `700 19px ${F}`; ctx.fillStyle = good ? TH.good : TH.sub;
+    ctx.fillText((prev ? Math.round(res.P[i] * 100) + ' → ' : '') + Math.round(P * 100) + ' %' + (good ? ' ✓' : ''), n.x, by + 38);
+  });
+}
+
+function drawHud() {
+  if (mode !== 'story') { drawArcadeHud(); return; }
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left'; ctx.fillStyle = TH.accent; ctx.font = `700 26px ${F}`; ctx.fillText('WAVEMIND', 26, 46);
+  ctx.fillStyle = TH.sub; ctx.font = `700 17px ${F}`; ctx.fillText(`${CH[chapOf(level)].icon} ${tr(CH[chapOf(level)].name).toUpperCase()} · ${jOf(level) + 1}/${PER}`, 26, 72);
+  BTN.menu = [20, 20, 140, 60];
+  const tot = Object.values(save.stars).reduce((a, b) => a + b, 0);
+  ctx.textAlign = 'center'; ctx.fillStyle = TH.gold; ctx.font = `700 22px ${F}`; ctx.fillText('★ ' + tot, W / 2 - 62, 58);
+  roundRect(W / 2 - 10, 34, 112, 36, 18); ctx.fillStyle = TH.dark ? 'rgba(255,255,255,0.06)' : '#fff'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = TH.cardLine; ctx.stroke();
+  ctx.fillStyle = TH.sub; ctx.font = `700 16px ${F}`; ctx.fillText('🎨 ' + tr(TH.name), W / 2 + 46, 58); BTN.theme = [W / 2 - 14, 28, 120, 48];
+  ctx.textAlign = 'right'; ctx.fillStyle = TH.sub; ctx.font = `700 14px ${F}`; ctx.fillText('MOVIMIENTOS', W - 26, 34);
+  const n = lv.par + lv.extra;
+  for (let i = 0; i < n; i++) {
+    const x = W - 34 - (n - 1 - i) * 26, y = 58, live = i < moves;
+    ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fillStyle = live ? (moves <= 1 ? TH.warn : TH.gold) : TH.track; ctx.fill();
+    if (live) { ctx.fillStyle = '#3a2a00'; ctx.font = `700 12px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('⚡', x, y + 1); ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'right'; }
+  }
+  ctx.save(); if (!TH.dark) { ctx.shadowColor = 'rgba(20,30,60,0.10)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4; }
+  roundRect(20, 96, W - 40, 172, 18); ctx.fillStyle = TH.card; ctx.fill(); ctx.restore();
+  roundRect(20, 96, W - 40, 172, 18); ctx.lineWidth = 1.5; ctx.strokeStyle = TH.cardLine; ctx.stroke();
+  ctx.textAlign = 'left'; ctx.fillStyle = TH.faint; ctx.font = `700 13px ${F}`; ctx.fillText('PROBLEMA DEL MOMENTO', 44, 124);
+  ctx.font = `64px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(lv.e, 90, 190); ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left'; ctx.fillStyle = TH.text; ctx.font = `700 29px ${F}`;
+  const yEnd = wrap(lv.q, 146, 170, W - 200, 34);
+  ctx.fillStyle = TH.good; ctx.font = `700 21px ${F}`; ctx.fillText(goalText(), 146, Math.max(yEnd + 40, 238));
+  ctx.textAlign = 'center';
+  if (lv.hint) {
+    roundRect(30, 1092, W - 60, 72, 14); ctx.fillStyle = TH.hintBg; ctx.fill();
+    ctx.fillStyle = TH.hint; ctx.font = `19px ${F}`; wrap(lv.hint, W / 2, 1121, W - 100, 26);
+  } else {
+    ctx.fillStyle = TH.sub; ctx.font = `18px ${F}`;
+    ctx.fillText('Tocá un cable para conectarlo o cortarlo', W / 2, 1120);
+    const hasHot = lv.nodes.some(n => n.hot), hasEye = lv.eyeNodes.length > 0;
+    ctx.fillText(hasEye ? tr('👁 tocá el ojo para taparlo') + tr(hasHot ? ' · 🔥 rompe la interferencia' : ' · π invierte la fase')
+      : hasHot ? '🔥 caliente: ahí la onda no interfiere · π invierte la fase' : 'π invierte la fase (celeste ↔ rosa) · 🔒 soldado', W / 2, 1148);
+  }
+  button('restart', W / 2 - 110, 1190, 220, 58, '↺  Reiniciar', TH.sub);
+}
+
+function drawPreview() {
+  if (sel < 0 || state !== 'play') return;
+  const isEye = sel >= lv.E, nd = isEye ? lv.nodes[lv.eyeNodes[sel - lv.E]] : null, e = isEye ? null : lv.edges[sel];
+  const p = isEye ? [nd.x, nd.y - 10] : e.pts[15], fixed = !isEye && e.fixed;
+  const txt = isEye ? (on[sel] ? '🙈 TAPAR OJO' : '👁 DESTAPAR') : fixed ? '🔒 SOLDADO' : on[sel] ? '✂  CORTAR' : '＋ CONECTAR';
+  const col = isEye ? (on[sel] ? TH.good : TH.warn) : fixed ? TH.sub : on[sel] ? TH.warn : TH.good;
+  const sub = fixed ? 'no se puede cortar' : ptrType === 'mouse' ? 'clic para confirmar' : 'tocá de nuevo para confirmar';
+  const bx = Math.max(115, Math.min(W - 115, p[0])), by = p[1] - 62;
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 16;
+  roundRect(bx - 108, by - 26, 216, 60, 14); ctx.fillStyle = TH.panel; ctx.fill(); ctx.restore();
+  roundRect(bx - 108, by - 26, 216, 60, 14); ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = col; ctx.font = `700 21px ${F}`; ctx.fillText(txt, bx, by + 2);
+  ctx.fillStyle = TH.sub; ctx.font = `15px ${F}`; ctx.fillText(sub, bx, by + 24);
+  if (prev) {
+    roundRect(26, 296, 176, 32, 16); ctx.fillStyle = rgba(TH.ink, 0.08); ctx.fill();
+    ctx.fillStyle = TH.text; ctx.font = `700 15px ${F}`; ctx.fillText('👁 VISTA PREVIA', 114, 318);
+  }
+}
+function panel(y0, h) {
+  ctx.fillStyle = TH.shade; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 30; roundRect(50, y0, W - 100, h, 24); ctx.fillStyle = TH.panel; ctx.fill(); ctx.restore();
+  roundRect(50, y0, W - 100, h, 24); ctx.lineWidth = 2; ctx.strokeStyle = TH.cardLine; ctx.stroke();
+}
+
+function drawOverlay() {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  if (state === 'measure') {
+    const n = lv.nodes[lv.outputs[outcome]], k = Math.min(1, stT / 0.9);
+    ctx.lineWidth = 4; ctx.strokeStyle = rgba(TH.ink, 1 - k); ctx.beginPath(); ctx.arc(n.x, n.y, 30 + 160 * k, 0, 7); ctx.stroke();
+    ctx.fillStyle = rgba(TH.ink, 0.9 * (1 - k)); ctx.font = `700 34px ${F}`; ctx.fillText('MIDIENDO…', W / 2, NET_TOP + 40);
+  }
+  if (state === 'won') {
+    panel(140, 1010);
+    ctx.fillStyle = TH.good; ctx.font = `700 40px ${F}`; ctx.fillText('¡RESUELTO!', W / 2, 196);
+    stars(gotStars, W / 2, 242, 38);
+    const ans = lv.labels[outcome];
+    ctx.textAlign = 'center'; ctx.fillStyle = TH.text; ctx.font = `700 23px ${F}`;
+    ctx.fillText(lv.kind === 'one' ? tr('La IA respondió:') + ' ' + tr(ans) : tr('Al medir salió:') + ' ' + tr(ans) + ' 🎲', W / 2, 296);
+    ctx.fillStyle = TH.sub; ctx.font = `17px ${F}`;
+    const learn = lv.learn || (lv.kind === 'half' ? 'Superposición: las dos respuestas a la vez, hasta que mediste.'
+      : lv.kind === 'uni' ? 'Cuatro caminos a la vez. Al medir, el azar cuántico eligió uno.'
+      : lv.nodes.some(n => n.hot) ? 'Esquivaste el ruido: donde no hay calor, la onda interfiere y la respuesta se refuerza.'
+      : lv.eyeNodes.length ? 'Sin espías mirando, la onda volvió a interferir.'
+      : 'Interferencia: en las respuestas falsas la onda se anuló (cresta + valle).');
+    wrap(learn, W / 2, 324, W - 200, 22);
+    const k = Math.max(0, Math.min(1, (stT - 0.15) / 0.75)), flip = -Math.cos(Math.PI * k);
+    drawCard(cardIdx, 110, 372, 500, 560, stT, rewardBadge, flip, cardHalf);
+    drawBurst(W / 2, 650, stT - 0.55);
+    ctx.textAlign = 'center'; ctx.fillStyle = TH.faint; ctx.font = `16px ${F}`;
+    ctx.fillText(L(`Usaste ${used} mov. (mínimo ${lv.par}) · Álbum ${albumDone()}/${CARDS.length}`, `Used ${used} moves (best ${lv.par}) · Album ${albumDone()}/${CARDS.length}`), W / 2, 972);
+    button('again', 90, 1000, 200, 64, '↺ Otra vez', TH.sub);
+    button('next', 310, 1000, 320, 64, level % PER === 0 ? 'Capítulos ▶' : 'Siguiente nivel ▶', TH.good, true);
+  }
+  if (state === 'lost') {
+    panel(420, 330);
+    ctx.fillStyle = TH.warn; ctx.font = `700 40px ${F}`; ctx.fillText('Sin movimientos', W / 2, 495);
+    ctx.fillStyle = TH.text; ctx.font = `21px ${F}`; wrap('La IA quedó colgada. Probá otra combinación de cables.', W / 2, 550, W - 180, 28);
+    ctx.fillStyle = TH.sub; ctx.font = `18px ${F}`; ctx.fillText(L(`Se puede resolver en ${lv.par} movimiento${lv.par === 1 ? '' : 's'}`, `Solvable in ${lv.par} move${lv.par === 1 ? '' : 's'}`), W / 2, 630);
+    button('retry', W / 2 - 150, 665, 300, 64, '↺ Reintentar', TH.gold, true);
+  }
+}
+
+// portada: dos ondas que se suman (interferencia en vivo) o el "candelabro" dorado de una computadora cuántica real
+function drawWaves() {
+  const ph = Math.PI * (0.5 + 0.5 * Math.sin(T * 0.7)), x0 = 90, x1 = W - 90, A = 26;
+  const row = (y, f, col, lw, label) => {
+    ctx.beginPath(); for (let x = x0; x <= x1; x += 4) { const v = f((x - x0) / 70 - T * 2.2); x === x0 ? ctx.moveTo(x, y - v * A) : ctx.lineTo(x, y - v * A); }
+    ctx.save(); if (TH.dark) { ctx.shadowColor = col; ctx.shadowBlur = 14; } ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.stroke(); ctx.restore();
+    ctx.fillStyle = TH.faint; ctx.font = `15px ${F}`; ctx.textAlign = 'left'; ctx.fillText(label, x0, y - 44);
+  };
+  row(420, s => Math.sin(s), phase(1, 1), 3, 'onda A');
+  row(530, s => Math.sin(s + ph), phase(Math.cos(ph) > 0 ? 1 : -1, 1), 3, ph > Math.PI * 0.75 ? 'onda B (fase opuesta)' : 'onda B');
+  row(680, s => Math.sin(s) + Math.sin(s + ph), rgba(TH.ink, 0.95), 4, 'A + B');
+  const amp = Math.abs(2 * Math.cos(ph / 2));
+  ctx.textAlign = 'right'; ctx.font = `700 17px ${F}`; ctx.fillStyle = amp < 0.4 ? TH.warn : amp > 1.6 ? TH.good : TH.sub;
+  ctx.fillText(amp < 0.4 ? 'se anulan' : amp > 1.6 ? 'se refuerzan' : 'interfieren', x1, 636);
+  ctx.textAlign = 'center'; ctx.fillStyle = TH.faint; ctx.font = `700 30px ${F}`; ctx.fillText('+', 60, 485); ctx.fillText('=', 60, 615);
+}
+function drawChandelier() {
+  const cx = W / 2, plates = [[350, 400], [438, 330], [520, 260], [598, 196], [664, 136]];
+  ctx.strokeStyle = '#a97e34'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(cx, 290); ctx.lineTo(cx, 350); ctx.stroke();
+  for (let i = 0; i < plates.length - 1; i++) {
+    const [y0, w0] = plates[i], [y1, w1] = plates[i + 1];
+    for (const f of [-0.38, -0.12, 0.12, 0.38]) { ctx.strokeStyle = '#8a6526'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(cx + f * w0, y0); ctx.lineTo(cx + f * w1, y1); ctx.stroke(); }
+    for (const f of [-0.26, 0, 0.26]) {   // coaxiales en espiral
+      ctx.strokeStyle = 'rgba(232,192,106,0.75)'; ctx.lineWidth = 1.6; ctx.beginPath();
+      for (let s = 0; s <= 1; s += 0.05) { const x = cx + f * (w0 + (w1 - w0) * s) + Math.sin(s * 18 + T * 3 + f * 9) * 5, y = y0 + (y1 - y0) * s; s ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+      ctx.stroke();
+    }
+  }
+  for (const [y, w] of plates) {
+    ctx.beginPath(); ctx.ellipse(cx, y, w / 2, 13, 0, 0, 7); ctx.fillStyle = '#2a2110'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#e8c06a'; ctx.stroke();
+  }
+  const pulse = 0.5 + 0.5 * Math.sin(T * 3);
+  ctx.save(); ctx.shadowColor = phase(1, 1); ctx.shadowBlur = 20 + 25 * pulse;
+  roundRect(cx - 34, 700, 68, 68, 8); ctx.fillStyle = '#0d1226'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#e8c06a'; ctx.stroke(); ctx.restore();
+  ctx.beginPath(); ctx.arc(cx, 734, 10 + 6 * pulse, 0, 7); ctx.fillStyle = phase(pulse > 0.5 ? 1 : -1, 0.9); ctx.fill();
+  ctx.strokeStyle = '#a97e34'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx, 677); ctx.lineTo(cx, 700); ctx.stroke();
+  ctx.textAlign = 'left'; ctx.fillStyle = TH.faint; ctx.font = `15px ${F}`; ctx.fillText('chip cuántico a −273 °C', cx + 50, 740);
+}
+function drawTitle() {
+  drawBackground();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.save(); if (TH.dark) { ctx.shadowColor = TH.accent; ctx.shadowBlur = 30; }
+  ctx.fillStyle = TH.accent; ctx.font = `700 96px ${F}`; ctx.fillText('WAVEMIND', W / 2, 180); ctx.restore();
+  ctx.fillStyle = TH.text; ctx.font = `700 27px ${F}`; ctx.fillText('Entrená la IA cuántica', W / 2, 230);
+  if (TH.cable === 'trace') drawChandelier(); else drawWaves();
+  ctx.textAlign = 'center'; ctx.fillStyle = TH.sub; ctx.font = `22px ${F}`;
+  wrap('Las computadoras cuánticas no adivinan: cancelan las respuestas falsas. ¿Vos podés?', W / 2, 790, W - 120, 30);
+  button('play', W / 2 - 180, 852, 360, 84, L('▶  JUGAR', '▶  PLAY'), TH.good, true); BTN.reset = null;
+  ctx.textAlign = 'center'; ctx.fillStyle = TH.faint; ctx.font = `16px ${F}`;
+  ctx.fillText(L(`Arcade · ${ARC_TIME} s`, `Arcade · ${ARC_TIME} s`) + (save.bestArc ? L(` · récord ${save.bestArc}`, ` · best ${save.bestArc}`) : ''), W / 2, 962);
+  button('story', W / 2 - 250, 984, 240, 56, L('📖 Historia', '📖 Story'), TH.accent);
+  button('album', W / 2 + 10, 984, 240, 56, `📒 ${L('Álbum', 'Album')} ${albumDone()}/${CARDS.length}`, TH.gold);
+  button('board', W / 2 - 250, 1052, 240, 56, L('🏆 Ranking', '🏆 Leaderboard'), TH.gold);
+  button('science', W / 2 + 10, 1052, 240, 56, L('⚛ La ciencia', '⚛ The science'), TH.accent);
+  button('theme', W / 2 - 250, 1120, 240, 56, '🎨 ' + tr(TH.name), TH.sub);
+  button('lang', W / 2 + 10, 1120, 240, 56, LANG === 'en' ? '🌐 Español' : '🌐 English', TH.sub);
+}
+
+const SCIENCE = [
+  ['Superposición', 'La onda viaja por todos los cables encendidos a la vez. Cada neurona la reparte: amplitud ÷ √(cables), así la probabilidad total se conserva.'],
+  ['Fase', 'Un cable π multiplica la amplitud por −1 (e^(iπ) = −1). Celeste es +, rosa es −: la misma onda, cresta o valle.'],
+  ['Interferencia', 'En cada neurona las amplitudes se suman. +½ y −½ dan 0: esa respuesta desaparece. Es la base de los algoritmos cuánticos.'],
+  ['Medición', 'Regla de Born: la probabilidad de cada respuesta es |amplitud|². Al medir sale una sola, al azar según esas probabilidades.'],
+  ['Redes neuronales cuánticas', 'Existen: son circuitos cuánticos que se entrenan ajustando sus conexiones y parámetros hasta que dan la respuesta correcta.'],
+  ['Lo que simplificamos', 'Un chip real usa compuertas reversibles y fases continuas. Acá las fases son solo 0 o π, y como dos cables pueden juntarse en una neurona, normalizamos al medir.'],
+];
+function drawScience() {
+  drawBackground();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = TH.accent; ctx.font = `700 40px ${F}`; ctx.fillText('La ciencia detrás', W / 2, 110);
+  ctx.fillStyle = TH.sub; ctx.font = `20px ${F}`; ctx.fillText('Física cuántica de verdad, en versión simplificada', W / 2, 148);
+  let y = 210; ctx.textAlign = 'left';
+  for (const [h, t] of SCIENCE) {
+    ctx.fillStyle = h.startsWith('Lo que') ? TH.gold : TH.good; ctx.font = `700 23px ${F}`; ctx.fillText(h, 50, y);
+    ctx.fillStyle = TH.text; ctx.font = `20px ${F}`; y = wrap(t, 50, y + 32, W - 100, 27) + 52;
+  }
+  button('back', W / 2 - 130, 1170, 260, 62, '◀  Volver', TH.accent);
+}
+// ---------- álbum de figuritas cuánticas (premio de cada nivel) ----------
+const hr = i => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const CYc = 'rgba(69,227,255,', MGc = 'rgba(255,79,216,';
+function dot(x, y, r, col) { ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = col; ctx.fill(); }
+function glowOn(col, b) { ctx.shadowColor = col; ctx.shadowBlur = b; }
+const sceneCache = {};
+
+function sRendija(x, y, w, h, t) {
+  t %= 9; const cy = y + h / 2, sx = x + w * 0.08, px = x + w * 0.4, scr = x + w * 0.9, sl = h * 0.11;
+  ctx.lineWidth = 1.5;
+  for (let k = 0; k < 4; k++) { const r = ((t * 70 + k * 30) % 120) / 120; ctx.strokeStyle = CYc + (0.5 * (1 - r)) + ')'; ctx.beginPath(); ctx.arc(sx, cy, r * (px - sx), -1, 1); ctx.stroke(); }
+  for (const s of [-1, 1]) for (let k = 0; k < 5; k++) {
+    const r = ((t * 70 + k * 26) % 130) / 130; ctx.strokeStyle = CYc + (0.45 * (1 - r)) + ')'; ctx.beginPath(); ctx.arc(px, cy + s * sl, r * (scr - px), -1.2, 1.2); ctx.stroke();
+  }
+  ctx.fillStyle = '#5b6b7c';
+  ctx.fillRect(px - 3, y, 6, cy - sl - 6 - y); ctx.fillRect(px - 3, cy - sl + 6, 6, 2 * sl - 12); ctx.fillRect(px - 3, cy + sl + 6, 6, y + h - cy - sl - 6);
+  dot(sx, cy, 6, '#fff');
+  ctx.fillStyle = '#123'; ctx.fillRect(scr, y + 6, 8, h - 12);
+  if (!sceneCache.rend) { const a = []; let j = 0; while (a.length < 600) { const v = hr(j++) * 2 - 1; if (hr(j++) < Math.cos(v * 9) ** 2 * Math.exp(-v * v * 1.5)) a.push([v, hr(j++)]); } sceneCache.rend = a; }
+  const n = Math.min(600, Math.floor(t * 110));
+  for (let i = 0; i < n; i++) { const [v, jx] = sceneCache.rend[i]; dot(scr + 3 + jx * 6, cy + v * h * 0.45, 1.6, i > n - 6 ? '#fff' : CYc + '0.85)'); }
+}
+function sSol(x, y, w, h, t) {
+  const cx = x + w / 2, cy = y + h / 2, R = h * 0.36, pul = 1 + 0.03 * Math.sin(t * 3);
+  const g = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * 1.5 * pul);
+  g.addColorStop(0, '#fff7c2'); g.addColorStop(0.45, '#ffb21e'); g.addColorStop(0.7, 'rgba(255,90,20,0.6)'); g.addColorStop(1, 'rgba(255,60,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  const p = (t % 3) / 3, d = p < 0.6 ? (1 - p / 0.6) * R * 0.8 + 14 : 14 - (p - 0.6) * 30;
+  if (p < 0.82) { dot(cx - d, cy, 9, '#ff4d4d'); dot(cx + d, cy, 9, '#ff4d4d'); ctx.fillStyle = '#fff'; ctx.font = `700 11px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('+', cx - d, cy); ctx.fillText('+', cx + d, cy); ctx.textBaseline = 'alphabetic'; }
+  if (p > 0.55 && p < 0.82) { ctx.strokeStyle = CYc + '0.9)'; ctx.lineWidth = 2; ctx.beginPath(); for (let i = -20; i <= 20; i++) ctx.lineTo(cx + i, cy - 18 + Math.sin(i * 0.8 + t * 20) * 4); ctx.stroke(); }
+  if (p >= 0.8) { const k = (p - 0.8) / 0.2; dot(cx, cy, 10 + 60 * k, `rgba(255,255,255,${1 - k})`); ctx.fillStyle = `rgba(255,255,255,${1 - k * 0.5})`; ctx.font = `700 22px ${F}`; ctx.textAlign = 'center'; ctx.fillText('¡fusión!', cx, cy - 30 - 20 * k); }
+}
+function sOrbital(x, y, w, h, t) {
+  if (!sceneCache.orb) { const a = []; let j = 0; while (a.length < 900) { const px = hr(j++) * 20 - 10, py = hr(j++) * 20 - 10, pz = hr(j++) * 20 - 10, r = Math.hypot(px, py, pz); if (hr(j++) < pz * pz * Math.exp(-r) / 0.55) a.push([px, py, pz]); } sceneCache.orb = a; }
+  const cx = x + w / 2, cy = y + h / 2, s = h / 22, a1 = t * 0.7, a2 = 0.5;
+  for (const [px, py, pz] of sceneCache.orb) {
+    const y1 = py * Math.cos(a1) - pz * Math.sin(a1), z1 = py * Math.sin(a1) + pz * Math.cos(a1);
+    const x2 = px * Math.cos(a2) + z1 * Math.sin(a2), z2 = -px * Math.sin(a2) + z1 * Math.cos(a2);
+    dot(cx + x2 * s, cy + y1 * s, 1.5, (pz > 0 ? CYc : MGc) + (0.35 + 0.04 * z2).toFixed(2) + ')');
+  }
+  ctx.save(); glowOn('#ff6060', 14); dot(cx, cy, 5, '#ff8080'); ctx.restore();
+}
+function sGato(x, y, w, h, t) {
+  const cx = x + w / 2, by = y + h * 0.62, cyc = Math.floor(t / 5), p = t % 5, open = p > 3.4;
+  ctx.font = `${h * 0.3}px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (!open) { const a = 0.5 + 0.5 * Math.sin(t * 4); ctx.globalAlpha = a; ctx.fillText('😺', cx, by - h * 0.18); ctx.globalAlpha = 1 - a; ctx.fillText('👻', cx, by - h * 0.18); ctx.globalAlpha = 1; }
+  else ctx.fillText(hr(cyc) < 0.5 ? '😺' : '👻', cx, by - h * 0.18);
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#a0723e'; ctx.fillRect(cx - w * 0.22, by - (open ? 0 : h * 0.3), w * 0.44, open ? h * 0.25 : h * 0.55);
+  ctx.fillStyle = '#c48a4c'; if (!open) ctx.fillRect(cx - w * 0.24, by - h * 0.33, w * 0.48, h * 0.06); else { ctx.save(); ctx.translate(cx - w * 0.24, by); ctx.rotate(-0.9); ctx.fillRect(0, -h * 0.06, w * 0.3, h * 0.06); ctx.restore(); }
+  ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(h * 0.07)}px ${F}`;
+  ctx.fillText(open ? (hr(cyc) < 0.5 ? '¡vivo!' : 'fantasma') : 'vivo + fantasma', cx, y + h * 0.95);
+}
+function sEntrelazados(x, y, w, h, t) {
+  const cy = y + h / 2, L = x + w * 0.2, Rr = x + w * 0.8, p = (t % 3) / 3, cyc = Math.floor(t / 3), up = hr(cyc + 7) < 0.5;
+  ctx.setLineDash([6, 8]); ctx.lineDashOffset = -t * 30; ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(L, cy); ctx.lineTo(Rr, cy); ctx.stroke(); ctx.setLineDash([]);
+  const meas = p > 0.6;
+  [[L, 1], [Rr, -1]].forEach(([cx, s]) => {
+    ctx.save(); glowOn(s > 0 ? '#45e3ff' : '#ff4fd8', 20); dot(cx, cy, h * 0.15, s > 0 ? CYc + '0.9)' : MGc + '0.9)'); ctx.restore();
+    const ang = meas ? ((up ? 1 : -1) * s > 0 ? -Math.PI / 2 : Math.PI / 2) : t * 9 * s;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(cx - Math.cos(ang) * h * 0.25, cy - Math.sin(ang) * h * 0.25); ctx.lineTo(cx + Math.cos(ang) * h * 0.25, cy + Math.sin(ang) * h * 0.25); ctx.stroke();
+    dot(cx + Math.cos(ang) * h * 0.25, cy + Math.sin(ang) * h * 0.25, 6, '#fff');
+  });
+  if (meas) { const k = (p - 0.6) / 0.4; ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(L, cy, h * 0.15 + 40 * k, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(Rr, cy, h * 0.15 + 40 * k, 0, 7); ctx.stroke(); }
+  ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(h * 0.07)}px ${F}`; ctx.textAlign = 'center'; ctx.fillText(meas ? 'siempre opuestos' : 'sin decidir…', x + w / 2, y + h * 0.92);
+}
+function sLaser(x, y, w, h, t) {
+  const cy = y + h / 2, x0 = x + w * 0.08, x1 = x + w * 0.72;
+  ctx.fillStyle = 'rgba(120,160,200,0.12)'; ctx.fillRect(x0, cy - h * 0.2, x1 - x0, h * 0.4);
+  ctx.fillStyle = '#c9d6e3'; ctx.fillRect(x0 - 8, cy - h * 0.25, 8, h * 0.5); ctx.fillRect(x1, cy - h * 0.25, 6, h * 0.5);
+  for (let i = 0; i < 26; i++) dot(x0 + hr(i) * (x1 - x0), cy + (hr(i + 50) - 0.5) * h * 0.34, 2.5, `rgba(255,120,120,${0.3 + 0.5 * Math.abs(Math.sin(t * 3 + i))})`);
+  ctx.save(); glowOn('#ff3b3b', 14); ctx.strokeStyle = '#ff5a5a'; ctx.lineWidth = 2.5; ctx.beginPath();
+  for (let xx = x0; xx <= x1; xx += 3) { const a = 4 + 20 * (xx - x0) / (x1 - x0); ctx.lineTo(xx, cy + a * Math.sin((xx - x0) / 9 - t * 10)); } ctx.stroke();
+  ctx.lineWidth = 7 + 2 * Math.sin(t * 20); ctx.beginPath(); ctx.moveTo(x1 + 6, cy); ctx.lineTo(x + w, cy); ctx.stroke(); ctx.restore();
+}
+function sLevita(x, y, w, h, t) {
+  const cx = x + w / 2, dy = y + h * 0.75, my = y + h * 0.36 + Math.sin(t * 2) * 5;
+  for (let i = 0; i < 6; i++) { const ph = (t * 0.4 + i / 6) % 1; ctx.fillStyle = `rgba(220,240,255,${0.18 * (1 - ph)})`; ctx.beginPath(); ctx.ellipse(cx + (hr(i) - 0.5) * w * 0.5 + ph * 20, dy - ph * h * 0.25, 30 + ph * 30, 8 + ph * 6, 0, 0, 7); ctx.fill(); }
+  ctx.strokeStyle = CYc + '0.45)'; ctx.lineWidth = 1.5;
+  for (const s of [-1, 1]) for (let k = 1; k <= 3; k++) { ctx.beginPath(); ctx.ellipse(cx + s * 14 * k, my, 14 * k, 22 + 12 * k, 0, s > 0 ? -1.4 : 1.7, s > 0 ? 1.4 : 4.6); ctx.stroke(); }
+  ctx.save(); glowOn('#45e3ff', 18); ctx.fillStyle = '#1b2838'; ctx.beginPath(); ctx.ellipse(cx, dy, w * 0.3, 16, 0, 0, 7); ctx.fill(); ctx.strokeStyle = '#7fdcff'; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
+  roundRect(cx - 24, my - 14, 48, 28, 5); ctx.fillStyle = '#c3ccd6'; ctx.fill(); ctx.fillStyle = '#e44'; ctx.fillRect(cx - 24, my - 14, 24, 28);
+  ctx.fillStyle = '#bfe9ff'; ctx.font = `700 ${Math.round(h * 0.07)}px ${F}`; ctx.textAlign = 'right'; ctx.fillText('−196 °C', x + w - 12, y + h - 12);
+}
+function sHoja(x, y, w, h, t) {
+  const cx = x + w / 2, cy = y + h / 2, p = (t % 4) / 4;
+  ctx.fillStyle = '#1f6b2e'; ctx.beginPath(); ctx.moveTo(cx - w * 0.38, cy + h * 0.1); ctx.quadraticCurveTo(cx - w * 0.05, cy - h * 0.55, cx + w * 0.4, cy - h * 0.05); ctx.quadraticCurveTo(cx, cy + h * 0.5, cx - w * 0.38, cy + h * 0.1); ctx.fill();
+  ctx.strokeStyle = '#3fa956'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - w * 0.38, cy + h * 0.1); ctx.quadraticCurveTo(cx, cy - h * 0.02, cx + w * 0.4, cy - h * 0.05); ctx.stroke();
+  const pts = []; for (let i = 0; i < 12; i++) pts.push([cx - w * 0.25 + hr(i + 3) * w * 0.48, cy - h * 0.15 + hr(i + 30) * h * 0.3]);
+  const hit = pts[0], goal = pts[11];
+  if (p < 0.3) { const k = p / 0.3; ctx.strokeStyle = '#ffe34a'; ctx.lineWidth = 2.5; ctx.beginPath(); for (let i = 0; i <= 20; i++) { const u = i / 20 * k; ctx.lineTo(x + (hit[0] - x) * u + Math.sin(u * 30) * 4, y + (hit[1] - y) * u); } ctx.stroke(); }
+  const front = p < 0.3 ? -1 : (p - 0.3) * w * 0.9;
+  for (const q of pts) { const d = Math.hypot(q[0] - hit[0], q[1] - hit[1]), on = front > d, f = on ? Math.max(0, 1 - (front - d) / 120) : 0; dot(q[0], q[1], 5, on ? `rgba(255,240,120,${0.4 + 0.6 * f})` : 'rgba(150,230,160,0.5)'); }
+  if (front > 0) { ctx.strokeStyle = 'rgba(255,240,120,0.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hit[0], hit[1], front, 0, 7); ctx.stroke(); }
+  ctx.strokeStyle = '#ff6b6b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(goal[0], goal[1], 9 + (front > Math.hypot(goal[0] - hit[0], goal[1] - hit[1]) ? 4 * Math.sin(t * 12) : 0), 0, 7); ctx.stroke();
+}
+function sPajaro(x, y, w, h, t) {
+  ctx.strokeStyle = 'rgba(69,227,255,0.25)'; ctx.lineWidth = 1.5;
+  for (let k = 1; k <= 4; k++) { ctx.beginPath(); ctx.ellipse(x + w / 2, y + h * 1.25, w * 0.15 * k, h * 0.28 * k, 0, Math.PI, 2 * Math.PI); ctx.stroke(); }
+  ctx.fillStyle = '#1d4f8f'; ctx.beginPath(); ctx.arc(x + w / 2, y + h * 1.6, h * 0.75, 0, 7); ctx.fill();
+  const bx = x + ((t * 50) % (w + 80)) - 40, byy = y + h * 0.4 + Math.sin(t * 6) * 6;
+  ctx.font = `${Math.round(h * 0.22)}px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🐦', bx, byy); ctx.textBaseline = 'alphabetic';
+  ctx.save(); glowOn('#ff4fd8', 16); dot(bx + h * 0.05, byy - h * 0.03, 3 + 2 * Math.sin(t * 8), MGc + '0.9)'); ctx.restore();
+  ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(h * 0.07)}px ${F}`; ctx.fillText('N ↑', x + w - 30, y + 24);
+}
+function sCelular(x, y, w, h, t) {
+  roundRect(x + w * 0.06, y + h * 0.15, w * 0.2, h * 0.7, 10); ctx.strokeStyle = '#c9d6e3'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.fillStyle = 'rgba(69,227,255,0.15)'; ctx.fillRect(x + w * 0.08, y + h * 0.2, w * 0.16, h * 0.55);
+  const bxx = x + w * 0.64, cy = y + h / 2, p = (t % 3.2) / 3.2, A = h * 0.2;
+  ctx.fillStyle = '#5b6b7c'; ctx.fillRect(bxx - 6, y + h * 0.15, 12, h * 0.7);
+  ctx.fillStyle = '#9fb3c4'; ctx.font = `${Math.round(h * 0.06)}px ${F}`; ctx.textAlign = 'center'; ctx.fillText('barrera', bxx, y + h * 0.12);
+  const pk = (cx0, amp, dir, col) => { ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.beginPath(); for (let i = -40; i <= 40; i++) { const xx = cx0 + i; if ((dir > 0 && cx0 > bxx && xx < bxx + 6) || (dir < 0 && xx > bxx - 6) || (dir > 0 && cx0 <= bxx && xx > bxx - 6)) continue; ctx.lineTo(xx, cy - amp * Math.exp(-i * i / 300) * Math.sin(i * 0.5 - t * 14)); } ctx.stroke(); };
+  const x0 = x + w * 0.3, pos = x0 + p * 2 * (bxx - x0);
+  if (pos < bxx) pk(pos, A, 1, CYc + '0.95)');
+  else { pk(bxx - (pos - bxx), A * 0.85, -1, CYc + '0.8)'); pk(pos, A * 0.45, 1, MGc + '0.95)'); }
+}
+function sGps(x, y, w, h, t) {
+  const cx = x + w / 2, cy = y + h / 2, R = h * 0.22;
+  const g = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.3, 2, cx, cy, R); g.addColorStop(0, '#5fb3ff'); g.addColorStop(1, '#174a8c');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
+  const pin = [cx + R * 0.35, cy - R * 0.55]; dot(pin[0], pin[1], 4, '#ff4d4d');
+  for (let i = 0; i < 3; i++) {
+    const a = t * 0.5 + i * 2.1, sx = cx + Math.cos(a) * h * 0.42, sy = cy + Math.sin(a) * h * 0.38;
+    ctx.fillStyle = '#c9d6e3'; ctx.fillRect(sx - 4, sy - 4, 8, 8); ctx.fillStyle = '#45e3ff'; ctx.fillRect(sx - 14, sy - 2, 8, 4); ctx.fillRect(sx + 6, sy - 2, 8, 4);
+    const k = ((t * 0.9 + i / 3) % 1); ctx.strokeStyle = `rgba(255,216,74,${1 - k})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + (pin[0] - sx) * k, sy + (pin[1] - sy) * k); ctx.stroke();
+  }
+  ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(h * 0.07)}px ${F}`; ctx.textAlign = 'center'; ctx.fillText('1 µs de error = 300 m', cx, y + h - 12);
+}
+function sCompu(x, y, w, h, t) {
+  const s = h / 520; ctx.save(); ctx.translate(x + w / 2 - (W / 2) * s, y - 270 * s); ctx.scale(s, s);
+  const keep = T; T = t; drawChandelier(); T = keep; ctx.restore();
+}
+
+function sCalor(x, y, w, h, t) {
+  const cy = y + h / 2, hx0 = x + w * 0.4, hx1 = x + w * 0.62;
+  const g = ctx.createLinearGradient(hx0, 0, hx1, 0);
+  g.addColorStop(0, 'rgba(255,80,20,0)'); g.addColorStop(0.5, `rgba(255,90,30,${0.35 + 0.1 * Math.sin(t * 6)})`); g.addColorStop(1, 'rgba(255,80,20,0)');
+  ctx.fillStyle = g; ctx.fillRect(hx0, y, hx1 - hx0, h);
+  for (let i = 0; i < 16; i++) dot(hx0 + hr(i) * (hx1 - hx0), y + h - ((t * 45 + hr(i + 5) * h) % h), 2, 'rgba(255,170,80,0.75)');
+  const fr = Math.floor(t * 12);
+  ctx.save(); glowOn('#45e3ff', 10); ctx.lineWidth = 3;
+  ctx.strokeStyle = '#45e3ff'; ctx.beginPath();
+  for (let xx = x + 10; xx <= hx0 + 20; xx += 3) ctx.lineTo(xx, cy - h * 0.22 * Math.sin((xx - x) / 14 - t * 6));
+  ctx.stroke(); ctx.restore();
+  ctx.strokeStyle = 'rgba(230,235,245,0.8)'; ctx.lineWidth = 2; ctx.beginPath();
+  for (let xx = hx0 + 20; xx <= x + w - 10; xx += 3) {
+    const u = Math.min(1, (xx - hx0 - 20) / (w * 0.2));
+    ctx.lineTo(xx, cy - h * 0.22 * (1 - u) * Math.sin((xx - x) / 14 - t * 6) + (hr(Math.floor(xx / 3) + fr * 97) - 0.5) * h * 0.45 * u);
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(h * 0.07)}px ${F}`; ctx.textAlign = 'left'; ctx.fillText('onda', x + 12, y + h - 12);
+  ctx.textAlign = 'right'; ctx.fillText('ruido', x + w - 12, y + h - 12); ctx.textAlign = 'center'; ctx.fillText('🌡️ calor', x + w * 0.51, y + 22);
+}
+function sOjo(x, y, w, h, t) {
+  const cy = y + h / 2, px = x + w * 0.4, scr = x + w * 0.88, sl = h * 0.11, p = t % 8, look = p >= 4, k = look ? p - 4 : p;
+  ctx.fillStyle = '#5b6b7c';
+  ctx.fillRect(px - 3, y, 6, cy - sl - 6 - y); ctx.fillRect(px - 3, cy - sl + 6, 6, 2 * sl - 12); ctx.fillRect(px - 3, cy + sl + 6, 6, y + h - cy - sl - 6);
+  dot(x + w * 0.08, cy, 6, '#fff');
+  ctx.fillStyle = '#123'; ctx.fillRect(scr, y + 6, 8, h - 12);
+  if (!sceneCache.rend) sRendija(-9999, -9999, 1, 1, 0);
+  if (!sceneCache.two) { const a = []; for (let i = 0; i < 400; i++) { const s = hr(i * 3) < 0.5 ? -1 : 1, g = (hr(i * 3 + 1) + hr(i * 3 + 2) + hr(i * 7 + 5) - 1.5) * 0.3; a.push([s * 0.32 + g, hr(i * 11)]); } sceneCache.two = a; }
+  const src = look ? sceneCache.two : sceneCache.rend, n = Math.min(400, Math.floor(k * 110));
+  for (let i = 0; i < n; i++) { const [v, jx] = src[i]; dot(scr + 3 + jx * 6, cy + v * h * 0.45, 1.6, look ? 'rgba(255,200,90,0.85)' : CYc + '0.85)'); }
+  ctx.save(); const keep = T; T = t; drawEye(px, y + h * 0.16, look, h / 160); T = keep; ctx.restore();
+  ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(h * 0.07)}px ${F}`; ctx.textAlign = 'left';
+  ctx.fillText(look ? 'mirando: 2 manchas' : 'sin mirar: franjas', x + 10, y + h - 10);
+}
+function sTele(x, y, w, h, t) {
+  const p = (t % 4) / 4;
+  ctx.fillStyle = '#1d4f8f'; ctx.beginPath(); ctx.arc(x + w / 2, y + h * 1.9, h * 1.15, 0, 7); ctx.fill();
+  const gx = x + w * 0.16, gy = y + h * 0.78, sx = x + w * 0.8, sy = y + h * 0.22;
+  ctx.fillStyle = '#c9d6e3'; ctx.fillRect(gx - 10, gy - 4, 20, 12); ctx.beginPath(); ctx.arc(gx, gy - 6, 9, Math.PI, 0); ctx.fill();
+  ctx.fillRect(sx - 6, sy - 6, 12, 12); ctx.fillStyle = '#45e3ff'; ctx.fillRect(sx - 22, sy - 3, 14, 6); ctx.fillRect(sx + 8, sy - 3, 14, 6);
+  ctx.save(); glowOn('#ff4fd8', 10); ctx.strokeStyle = 'rgba(255,79,216,0.7)'; ctx.lineWidth = 2; ctx.setLineDash([4, 6]); ctx.lineDashOffset = -t * 40;
+  ctx.beginPath(); ctx.moveTo(gx, gy - 14); ctx.lineTo(sx, sy + 8); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  const bloch = (bx, by, r, al) => {
+    ctx.globalAlpha = al; ctx.strokeStyle = '#9fdcff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(bx, by, r, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(bx, by, r, r * 0.3, 0, 0, 7); ctx.stroke();
+    const an = -1.1; ctx.strokeStyle = '#ffd84a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(an) * r, by + Math.sin(an) * r); ctx.stroke();
+    ctx.globalAlpha = 1;
+  };
+  const r = h * 0.13;
+  if (p < 0.4) bloch(gx, gy - h * 0.3, r, 1);
+  else if (p < 0.6) { const k = (p - 0.4) / 0.2; bloch(gx, gy - h * 0.3, r, 1 - k); for (let i = 0; i < 14; i++) dot(gx + (hr(i) - 0.5) * r * 3 * k, gy - h * 0.3 + (hr(i + 9) - 0.5) * r * 3 * k, 2, `rgba(255,216,74,${1 - k})`); }
+  if (p > 0.35 && p < 0.85) { const k = (p - 0.35) / 0.5; ctx.fillStyle = '#ffd84a'; ctx.font = `700 ${Math.round(h * 0.08)}px ${F}`; ctx.textAlign = 'center'; ctx.fillText('0 1', gx + (sx - gx) * k, gy - 30 + (sy - gy + 40) * k); }
+  if (p >= 0.75) bloch(sx, sy + h * 0.28, r, Math.min(1, (p - 0.75) / 0.1));
+  ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(h * 0.07)}px ${F}`; ctx.textAlign = 'right'; ctx.fillText('1.400 km', x + w - 12, y + h - 12);
+}
+
+const CARDS = [
+  { name: 'La doble rendija', draw: sRendija, fact: 'Los electrones llegan de a uno y aun así dibujan franjas: cada uno pasó por las dos rendijas como onda.' },
+  { name: 'El Sol funciona por efecto túnel', draw: sSol, fact: 'Dos protones se repelen y, según la física clásica, nunca se tocarían. Atraviesan esa barrera por efecto túnel y así brilla el Sol.' },
+  { name: 'El átomo es una nube', draw: sOrbital, fact: 'El electrón no gira como un planeta: es una nube de probabilidad con formas fijas, los orbitales. Este es el 2p.' },
+  { name: 'El gato de Schrödinger', draw: sGato, fact: 'Schrödinger lo inventó en 1935 para mostrar lo absurda que parece la superposición a gran escala. En átomos pasa de verdad.' },
+  { name: 'Entrelazamiento', draw: sEntrelazados, fact: 'Dos partículas entrelazadas dan resultados opuestos aunque estén lejísimos. Einstein lo llamó "acción fantasmal". Nobel de Física 2022.' },
+  { name: 'El láser', draw: sLaser, fact: 'En un láser, millones de fotones salen en la misma fase: una sola onda gigante. Einstein predijo la emisión estimulada en 1917.' },
+  { name: 'Superconductor flotante', draw: sLevita, fact: 'Enfriado con nitrógeno líquido, un superconductor expulsa el campo magnético y deja flotando un imán. Cuántica a simple vista.' },
+  { name: 'La hoja cuántica', draw: sHoja, fact: 'Hay experimentos que sugieren que la energía de la luz recorre la hoja como onda, por varios caminos a la vez. Todavía se investiga.' },
+  { name: 'La brújula de los pájaros', draw: sPajaro, fact: 'Los petirrojos se orientarían con el campo magnético terrestre gracias a pares de electrones en sus ojos. Hipótesis con mucha evidencia.' },
+  { name: 'El túnel en tu celular', draw: sCelular, fact: 'La memoria de tu celular guarda cada foto haciendo que los electrones atraviesen una barrera aislante: efecto túnel.' },
+  { name: 'Relojes atómicos y GPS', draw: sGps, fact: 'Los satélites GPS llevan relojes atómicos que cuentan saltos cuánticos. Un error de un microsegundo te correría 300 metros.' },
+  { name: 'La computadora cuántica', draw: sCompu, fact: 'Los chips cuánticos trabajan a −273 °C, más frío que el espacio, para que el ruido no destruya la interferencia.' },
+  { name: 'Decoherencia', draw: sCalor, fact: 'Cualquier choque con el entorno "delata" el camino de la onda y borra la interferencia. Es el gran enemigo de las computadoras cuánticas.' },
+  { name: 'Mirar cambia el resultado', draw: sOjo, fact: 'Si medís por qué rendija pasa cada electrón, las franjas desaparecen y quedan dos manchas. Saber el camino borra la interferencia.' },
+  { name: 'Teletransportación cuántica', draw: sTele, fact: 'En 2017 el satélite chino Micius teletransportó el estado cuántico de fotones a más de 1.000 km. No viaja materia: viaja información.' },
+];
+const cardChap = i => Math.max(0, CH.findIndex(c => c.cards.includes(i)));
+function sparkle(x, y, r) {
+  ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r * 0.22, y - r * 0.22); ctx.lineTo(x + r, y); ctx.lineTo(x + r * 0.22, y + r * 0.22);
+  ctx.lineTo(x, y + r); ctx.lineTo(x - r * 0.22, y + r * 0.22); ctx.lineTo(x - r, y); ctx.lineTo(x - r * 0.22, y - r * 0.22); ctx.closePath(); ctx.fill();
+}
+const dim = (col, f) => col.map(v => v * f | 0);
+function drawCardBack(x, y, w, h, t, col, big) {
+  roundRect(x, y, w, h, big ? 22 : 14);
+  const g = ctx.createLinearGradient(x, y, x + w, y + h); g.addColorStop(0, '#0b1830'); g.addColorStop(1, rgba(dim(col, 0.35), 1));
+  ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = big ? 4 : 2.5; ctx.strokeStyle = '#e8c06a'; ctx.stroke();
+  ctx.save(); roundRect(x, y, w, h, big ? 22 : 14); ctx.clip();
+  for (let k = 0; k < 9; k++) { ctx.strokeStyle = rgba(col, 0.22 - k * 0.02); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, 20 + k * w * 0.09 + (t * 30) % (w * 0.09), 0, 7); ctx.stroke(); }
+  ctx.restore();
+  ctx.save(); glowOn('#ffd84a', 20); ctx.fillStyle = '#ffd84a'; ctx.font = `700 ${big ? 130 : 60}px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('Q', x + w / 2, y + h / 2); ctx.restore(); ctx.textBaseline = 'alphabetic';
+}
+// figurita: badge = texto de la cinta ("¡NUEVA!"...), flip ∈ [−1, 1] (negativo = dorso), half = solo la mitad descubierta
+function drawCard(i, x, y, w, h, t, badge, flip, half) {
+  const c = CARDS[i], ch = CH[cardChap(i)], col = ch.col, big = w > 400, rad = big ? 22 : 14, pad = big ? 22 : 12;
+  const cx = x + w / 2, cy = y + h / 2;
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(Math.max(0.02, Math.abs(flip)), 1);
+  if (big) ctx.transform(1, 0, Math.sin(t * 1.3) * 0.012, 1, 0, 0);
+  ctx.translate(-cx, -cy);
+  if (flip < 0) { drawCardBack(x, y, w, h, t, col, big); ctx.restore(); return; }
+  ctx.save(); glowOn(rgba(col, 0.5), big ? 34 : 14); roundRect(x, y, w, h, rad);
+  const bg = ctx.createLinearGradient(x, y, x, y + h); bg.addColorStop(0, rgba(dim(col, 0.24), 1)); bg.addColorStop(0.5, '#08101c'); bg.addColorStop(1, '#05080f');
+  ctx.fillStyle = bg; ctx.fill(); ctx.restore();
+  const hg = ctx.createLinearGradient(x, y, x + w, y + h), ph = (t * 0.2) % 1;
+  for (const [o, cc] of [[0, '#45e3ff'], [0.25, '#ff4fd8'], [0.5, '#ffd84a'], [0.75, '#5dff9a']]) hg.addColorStop((o + ph) % 1, cc);
+  roundRect(x, y, w, h, rad); ctx.lineWidth = big ? 4 : 2.5; ctx.strokeStyle = hg; ctx.stroke();
+  roundRect(x + 7, y + 7, w - 14, h - 14, rad - 6); ctx.lineWidth = 1; ctx.strokeStyle = rgba(col, 0.35); ctx.stroke();
+  // encabezado: número, capítulo, cinta
+  const br = big ? 15 : 10, bx = x + pad + br, by = y + pad + br - (big ? 2 : 4);
+  dot(bx, by, br, rgba(col, 1)); ctx.fillStyle = '#05080f'; ctx.font = `700 ${big ? 15 : 11}px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(i + 1, bx, by + 1); ctx.textBaseline = 'alphabetic';
+  if (big) { ctx.textAlign = 'left'; ctx.fillStyle = rgba(col, 1); ctx.font = `700 14px ${F}`; ctx.fillText(`${ch.icon} ${tr(ch.name).toUpperCase()}`, bx + br + 10, by + 5); }
+  if (badge && big) {
+    ctx.font = `700 14px ${F}`; const tw = ctx.measureText(badge).width + 26;
+    roundRect(x + w - pad - tw, by - 13, tw, 26, 13); ctx.fillStyle = badge.includes('1/2') ? '#ffd84a' : '#ff4fd8'; ctx.fill();
+    ctx.fillStyle = badge.includes('1/2') ? '#3a2a00' : '#fff'; ctx.textAlign = 'center'; ctx.fillText(badge, x + w - pad - tw / 2, by + 5);
+  }
+  // escena
+  const sx = x + pad, sy = y + (big ? 60 : 32), sw = w - 2 * pad, sh = Math.round(sw * (big ? 0.6 : 0.58));
+  ctx.save(); roundRect(sx, sy, sw, sh, big ? 14 : 8); ctx.clip();
+  ctx.fillStyle = '#04070e'; ctx.fillRect(sx, sy, sw, sh);
+  const rg = ctx.createRadialGradient(sx + sw / 2, sy + sh / 2, 10, sx + sw / 2, sy + sh / 2, sw * 0.7);
+  rg.addColorStop(0, rgba(col, 0.18)); rg.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = rg; ctx.fillRect(sx, sy, sw, sh);
+  c.draw(sx, sy, sw, sh, t);
+  const vg = ctx.createRadialGradient(sx + sw / 2, sy + sh / 2, sh * 0.35, sx + sw / 2, sy + sh / 2, sw * 0.72);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)'); ctx.fillStyle = vg; ctx.fillRect(sx, sy, sw, sh);
+  if (half) {
+    const hy = sy + sh * 0.42; ctx.fillStyle = 'rgba(6,10,18,0.94)'; ctx.fillRect(sx, hy, sw, sh);
+    ctx.fillStyle = rgba(col, 0.28); ctx.font = `700 ${big ? 26 : 13}px ${F}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (let gx = 0; gx < 8; gx++) for (let gy = 0; gy < 3; gy++) ctx.fillText('?', sx + (gx + 0.5) * sw / 8, hy + (gy + 0.5) * (sy + sh - hy) / 3 + Math.sin(t * 2 + gx + gy) * 2);
+    ctx.textBaseline = 'alphabetic';
+    ctx.strokeStyle = rgba(col, 0.9); ctx.lineWidth = 2; ctx.setLineDash([7, 6]); ctx.lineDashOffset = -t * 20; ctx.beginPath(); ctx.moveTo(sx, hy); ctx.lineTo(sx + sw, hy); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.restore();
+  roundRect(sx, sy, sw, sh, big ? 14 : 8); ctx.lineWidth = 1.5; ctx.strokeStyle = rgba(col, 0.55); ctx.stroke();
+  // título, separador y dato
+  ctx.textAlign = 'center';
+  ctx.save(); if (big) glowOn(rgba(col, 0.9), 14); ctx.fillStyle = '#fff'; ctx.font = `700 ${big ? 28 : 14}px ${F}`;
+  const ny = wrap(half ? '? ? ?' : c.name, cx, sy + sh + (big ? 44 : 20), w - 2 * pad, big ? 32 : 17); ctx.restore();
+  if (big) {
+    const dy = ny + 20; ctx.strokeStyle = rgba(col, 0.6); ctx.lineWidth = 1.5; ctx.beginPath();
+    ctx.moveTo(x + w * 0.22, dy); ctx.lineTo(cx - 10, dy); ctx.moveTo(cx + 10, dy); ctx.lineTo(x + w * 0.78, dy); ctx.stroke();
+    ctx.save(); ctx.translate(cx, dy); ctx.rotate(Math.PI / 4); ctx.fillStyle = rgba(col, 1); ctx.fillRect(-4, -4, 8, 8); ctx.restore();
+    ctx.fillStyle = half ? rgba(col, 0.9) : '#cfdbe8'; ctx.font = `18px ${F}`;
+    wrap(half ? 'Pasá el próximo nivel para completarla y descubrir qué es.' : c.fact, cx, dy + 34, w - 2 * pad - 10, 25);
+  }
+  // brillo que barre la figurita y destellos
+  ctx.save(); roundRect(x, y, w, h, rad); ctx.clip();
+  const sw2 = ((t * 0.4) % 2.4 - 0.7) * (w + h);
+  ctx.translate(x + sw2, y); ctx.rotate(0.45); ctx.fillStyle = 'rgba(255,255,255,0.07)'; ctx.fillRect(-35, -h, 70, h * 3); ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(48, -h, 18, h * 3);
+  ctx.restore();
+  for (let s = 0; s < (big ? 8 : 3); s++) { const tw = Math.sin(t * 2.6 + s * 1.9 + i); if (tw > 0.55) sparkle(x + 10 + hr(s * 3 + i) * (w - 20), y + 10 + hr(s * 5 + i + 1) * (h - 20), (tw - 0.55) * (big ? 24 : 12)); }
+  ctx.restore();
+}
+function drawBurst(cx, cy, t) {
+  if (t < 0 || t > 1.2) return;
+  for (let i = 0; i < 40; i++) { const a = i * 2.4 + hr(i), r = 40 + t * (260 + 160 * hr(i + 9)); dot(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 3 + 3 * hr(i + 4), (i % 3 === 0 ? 'rgba(255,216,74,' : i % 2 ? CYc : MGc) + Math.max(0, 1 - t / 1.2).toFixed(2) + ')'); }
+}
+function drawAlbum() {
+  drawBackground();
+  ctx.textAlign = 'center'; ctx.fillStyle = TH.accent; ctx.font = `700 40px ${F}`; ctx.fillText('Álbum cuántico', W / 2, 78);
+  ctx.fillStyle = TH.sub; ctx.font = `19px ${F}`; ctx.fillText(L(`${albumDone()} de ${CARDS.length} completas · cada nivel te da media figurita`, `${albumDone()} of ${CARDS.length} complete · every level gives half a card`), W / 2, 114);
+  CH.forEach((ch, c) => ch.cards.forEach((id, k) => {
+    const cx = 40 + k * 220, cy = 140 + c * 200, parts = save.cards[id] || 0;
+    if (parts) { drawCard(id, cx, cy, 200, 188, T + id, null, 1, parts < 2); BTN['card' + id] = [cx, cy, 200, 188]; }
+    else {
+      roundRect(cx, cy, 200, 188, 14); ctx.fillStyle = TH.dark ? 'rgba(255,255,255,0.04)' : '#fff'; ctx.fill();
+      ctx.setLineDash([6, 6]); ctx.lineWidth = 2; ctx.strokeStyle = rgba(ch.col, 0.35); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = rgba(ch.col, 0.5); ctx.font = `700 54px ${F}`; ctx.fillText('?', cx + 100, cy + 104);
+      ctx.fillStyle = TH.faint; ctx.font = `14px ${F}`; ctx.fillText(`${ch.icon} ${tr(ch.name)}`, cx + 100, cy + 160);
+      BTN['card' + id] = null;
+    }
+  }));
+  button('back', W / 2 - 130, 1160, 260, 60, '◀  Volver', TH.accent);
+}
+function drawCardView() {
+  drawBackground(); ctx.fillStyle = 'rgba(2,5,10,0.55)'; ctx.fillRect(0, 0, W, H);
+  drawCard(cardView, 90, 230, 540, 610, T, null, 1, (save.cards[cardView] || 0) < 2);
+  button('back', W / 2 - 130, 900, 260, 62, '◀  Álbum', TH.accent);
+}
+function drawChapters() {
+  drawBackground();
+  ctx.textAlign = 'center'; ctx.fillStyle = TH.accent; ctx.font = `700 40px ${F}`; ctx.fillText('Capítulos', W / 2, 74);
+  ctx.fillStyle = TH.gold; ctx.font = `700 20px ${F}`; ctx.fillText(`★ ${totalStars()} ${L('de', 'of')} ${LAST * 3}`, W / 2, 108);
+  CH.forEach((ch, c) => {
+    const x = 30, y = 136 + c * 198, w = W - 60, h = 182, open = chapOpen(c);
+    ctx.save(); if (open && TH.dark) glowOn(rgba(ch.col, 0.25), 18);
+    roundRect(x, y, w, h, 18); ctx.fillStyle = TH.card; ctx.fill(); ctx.restore();
+    roundRect(x, y, w, h, 18); ctx.lineWidth = 2; ctx.strokeStyle = rgba(ch.col, open ? 0.75 : 0.2); ctx.stroke();
+    ctx.globalAlpha = open ? 1 : 0.42;
+    ctx.textAlign = 'center'; ctx.font = `44px ${F}`; ctx.textBaseline = 'middle'; ctx.fillText(ch.icon, x + 50, y + 52); ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left'; ctx.fillStyle = TH.text; ctx.font = `700 26px ${F}`; ctx.fillText(`${c + 1}. ${tr(ch.name)}`, x + 92, y + 46);
+    ctx.fillStyle = TH.sub; ctx.font = `17px ${F}`; ctx.fillText(ch.desc, x + 92, y + 74);
+    ctx.textAlign = 'right'; ctx.fillStyle = TH.gold; ctx.font = `700 19px ${F}`; ctx.fillText(`★ ${chapStars(c)}/${PER * 3}`, x + w - 22, y + 46);
+    for (let j = 0; j < PER; j++) {
+      const n = c * PER + j + 1, px = x + 92 + j * 90, py = y + 124, st = save.stars[n] || 0, can = levelOpen(n);
+      ctx.beginPath(); ctx.arc(px, py, 24, 0, 7);
+      if (st) { ctx.fillStyle = rgba(ch.col, 0.9); ctx.fill(); }
+      else { ctx.fillStyle = TH.dark ? 'rgba(255,255,255,0.03)' : '#fff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = can ? rgba(ch.col, 0.9) : TH.track; ctx.stroke(); }
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `700 19px ${F}`;
+      ctx.fillStyle = st ? '#05080f' : can ? rgba(ch.col, 1) : TH.faint; ctx.fillText(can || st ? j + 1 : '🔒', px, py + 1); ctx.textBaseline = 'alphabetic';
+      if (can && !st && Math.sin(T * 4) > 0) { ctx.beginPath(); ctx.arc(px, py, 30, 0, 7); ctx.lineWidth = 2; ctx.strokeStyle = rgba(ch.col, 0.5); ctx.stroke(); }
+      ctx.fillStyle = TH.gold; ctx.font = `13px ${F}`; ctx.fillText('★'.repeat(st), px, py + 44);
+      BTN['lv' + n] = can ? [px - 30, py - 30, 60, 60] : null;
+    }
+    ctx.globalAlpha = 1;
+    if (!open) { ctx.textAlign = 'right'; ctx.fillStyle = TH.warn; ctx.font = `700 17px ${F}`; ctx.fillText(L(`🔒 Necesitás ${ch.need} ★`, `🔒 Needs ${ch.need} ★`), x + w - 22, y + 74); }
+  });
+  button('back', W / 2 - 130, 1140, 260, 60, '◀  Volver', TH.accent);
+  if (toast && toast.t < 5) {
+    const a = Math.min(1, toast.t * 4, (5 - toast.t) * 2);
+    ctx.globalAlpha = a; ctx.font = `700 19px ${F}`;
+    roundRect(30, 1206, W - 60, 66, 20); ctx.fillStyle = TH.panel; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = TH.gold; ctx.stroke();
+    ctx.fillStyle = TH.text; ctx.textAlign = 'center'; ctx.font = `700 17px ${F}`; wrap(toast.text, W / 2, 1232, W - 110, 22); ctx.globalAlpha = 1;
+  }
+}
+
+function draw() {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = TH.bg; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+  if (state === 'title') { drawTitle(); ctx.restore(); return; }
+  if (state === 'science') { drawScience(); ctx.restore(); return; }
+  if (state === 'album') { drawAlbum(); ctx.restore(); return; }
+  if (state === 'chapters') { drawChapters(); ctx.restore(); return; }
+  if (state === 'attract') { drawAttract(); ctx.restore(); return; }
+  if (state === 'initials') { drawInitials(); ctx.restore(); return; }
+  if (state === 'board') { drawBoard(); ctx.restore(); return; }
+  if (state === 'card') { drawCardView(); ctx.restore(); return; }
+  drawBackground(); drawNet(); drawHud(); drawPreview(); drawHand();
+  for (const p of popups) { ctx.globalAlpha = Math.max(0, 1 - p.t / p.life); ctx.fillStyle = p.col || TH.sub; ctx.font = `700 ${p.size}px ${F}`; ctx.textAlign = 'center'; ctx.fillText(p.text, p.x, p.y - 40 * p.t); ctx.globalAlpha = 1; }
+  drawOverlay();
+  ctx.restore();
+}
+
+function update(dt) {
+  T += dt; stT += dt; if (toast) toast.t += dt; shakeT = Math.max(0, shakeT - dt); flashT = Math.max(0, flashT - dt);
+  popups.forEach(p => p.t += dt); popups = popups.filter(p => p.t < p.life);
+  idleT += dt;
+  if (state === 'title' && idleT > 20) startAttract();
+  if (state === 'board' && idleT > 40) startAttract();
+  if (state === 'attract') attractStep(dt);
+  if (mode === 'arcade' && (state === 'play' || state === 'measure')) { arc.time -= dt; if (arc.time <= 0) { arc.time = 0; arcadeOver(); } }
+  if (mode === 'arcade' && state === 'measure' && stT > 0.5) arcadeSolved();
+  if (mode === 'story' && state === 'measure' && stT > 0.9) {
+    state = 'won'; stT = 0;
+    gotStars = used <= lv.par ? 3 : used <= lv.par + 1 ? 2 : 1;
+    save.stars[level] = Math.max(save.stars[level] || 0, gotStars);
+    if (level + 1 > save.max) save.max = level + 1;
+    const id = CH[chapOf(level)].cards[jOf(level) >> 1], want = (jOf(level) & 1) ? 2 : 1, before = save.cards[id] || 0;
+    if (want > before) save.cards[id] = want;
+    cardIdx = id; cardHalf = (save.cards[id] || 0) < 2;
+    rewardBadge = want > before ? (want === 1 ? 'NUEVA · 1/2' : before === 1 ? '¡COMPLETA!' : '¡NUEVA!') : null;
+    persist(); sfx('reveal');
+  }
+}
+
+let last = performance.now();
+function frame(now) { const dt = Math.min(0.05, (now - last) / 1000); last = now; update(dt); draw(); requestAnimationFrame(frame); }
+
+// #lv=N abre un nivel; #lv=N&solve=1 lo muestra resuelto (para capturas)
+const hp = new URLSearchParams(location.hash.slice(1));
+if (hp.get('lv')) {
+  startLevel(+hp.get('lv'));
+  if (hp.get('solve')) {
+    const w = lv.wins.reduce((b, m) => pc(m ^ lv.start) < pc(b ^ lv.start) ? m : b, lv.wins[0]);
+    lv.tog.forEach((k, j) => on[k] = (w >> j) & 1); used = pc(w ^ lv.start); moves -= used; res = evalLv(lv, on, true);
+    if (hp.get('solve') === '2') { outcome = res.P.indexOf(Math.max(...res.P)); gotStars = 3; state = 'won'; stT = +(hp.get('t') || 3); cardIdx = CH[chapOf(level)].cards[jOf(level) >> 1]; cardHalf = hp.has('half'); rewardBadge = cardHalf ? 'NUEVA · 1/2' : '¡NUEVA!'; }
+  }
+}
+if (hp.get('sel')) select(+hp.get('sel'));
+if (hp.has('ciencia')) state = 'science';
+if (hp.get('tema') && THEMES[hp.get('tema')]) { save.theme = hp.get('tema'); TH = THEMES[save.theme]; }
+if (hp.has('portada')) state = 'title';
+if (hp.get('fig')) { const n = +hp.get('fig'); for (let i = 0; i < CARDS.length; i++) save.cards[i] = i < n ? 2 : i === n ? 1 : 0; }
+if (hp.get('stars')) { const n = +hp.get('stars'); for (let i = 1; i <= n; i++) save.stars[i] = i % 3 === 0 ? 2 : 3; }
+if (hp.has('cap')) state = 'chapters';
+if (hp.get('lang')) LANG = hp.get('lang');
+if (hp.has('arcade')) startArcade();
+if (hp.has('demo')) startAttract();
+if (hp.has('board')) { save.board = [{ n: 'ROD', s: 4250, p: 12 }, { n: 'AMY', s: 3100, p: 9 }, { n: 'JKL', s: 1800, p: 6 }]; state = 'board'; }
+if (hp.has('album')) state = 'album';
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
