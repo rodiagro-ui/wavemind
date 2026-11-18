@@ -8,6 +8,8 @@
 
 WAVEMIND is a quick, tap-to-play puzzle game about how quantum computers really "think". You rewire the cables of a quantum AI so that its wave cancels out on the false answers and builds up on the true one. It is built for the Cloud9 x JetBrains "Sky's the Limit" Hackathon 2026 (Category 3: Event Mini Game).
 
+![WAVEMIND: wire the wave](docs/img/02_interference.png)
+
 ## How to play
 
 - **Tap a cable** to connect or cut it. The wave flows from the **Q** core down to the answers.
