@@ -14,6 +14,7 @@ WAVEMIND is a quick, tap-to-play puzzle game about how quantum computers really 
 - 🔥 **Hot neurons** scramble the wave (decoherence), so nothing interferes there.
 - 👁 **Spy eyes** watch the path and break interference. Tap an eye to cover it.
 - When the goal is met, the AI **measures**, and the answer lights up.
+- 👁 **Colorblind mode** (title screen): π cables are drawn dashed and every lit cable shows a +/− sign, so phase never depends on colour alone.
 
 ## Modes
 
@@ -54,7 +55,7 @@ npx serve .
 
 ## Tools
 
-- **JetBrains WebStorm** and the **Junie** AI coding agent (details in `AI_SHOWCASE.md`)
+- **JetBrains WebStorm** with **JetBrains Air**, driving the **Junie** coding agent (it built the colorblind mode). The two-agent workflow story is in [`AI_SHOWCASE.md`](AI_SHOWCASE.md).
 - Claude Code (Anthropic) for design iteration, physics prototyping and testing
 - Plain HTML5 Canvas + JavaScript, Web Audio API, Google Font *Space Grotesk*
 
