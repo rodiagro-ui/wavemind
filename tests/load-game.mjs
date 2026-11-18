@@ -25,6 +25,6 @@ export function loadGame() {
   vm.runInContext(code + `
 ;globalThis.__G = { build, evalLv, solveAll, minDist, levelSpec, bossSpec, startLevel, toggle, update, startArcade,
   get lv() { return lv; }, get on() { return on; }, get res() { return res; }, get state() { return state; },
-  get arc() { return arc; }, CH, LAST, BOSS, PER, TUT, TUT_R1, TUT_E1, CARDS, EN };`, sandbox);
+  get arc() { return arc; }, CH, LAST, BOSS, PER, TUT, TUT_R1, TUT_E1, CARDS, EN, qrMatrix, PLAY_URL };`, sandbox);
   return sandbox.__G;
 }

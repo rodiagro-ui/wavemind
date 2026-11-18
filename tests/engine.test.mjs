@@ -80,3 +80,46 @@ test('English translation covers every card and chapter', () => {
   for (const c of G.CARDS) { assert.ok(G.EN[c.name], c.name); assert.ok(G.EN[c.fact], c.fact.slice(0, 30)); }
   for (const c of G.CH) { assert.ok(G.EN[c.name], c.name); assert.ok(G.EN[c.desc], c.desc); }
 });
+
+test('QR matrix for PLAY_URL is square, version 3 (29x29), and has finder patterns', () => {
+  const m = G.qrMatrix(G.PLAY_URL);
+  const n = m.length;
+  // square
+  assert.equal(n, m[0].length, 'matrix is square');
+  // version 3: side = 29 (39-byte URL needs 41 data bytes → v3 with 44 data bytes)
+  assert.equal(n, 29, 'PLAY_URL should produce version 3 QR (29x29)');
+  // finder pattern 7x7 in top-left corner
+  const finder = (r0, c0) => {
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < 7; c++) {
+        const expected = (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4));
+        assert.equal(m[r0 + r][c0 + c], expected, `finder at (${r0 + r},${c0 + c})`);
+      }
+    }
+  };
+  finder(0, 0);          // top-left
+  finder(0, n - 7);      // top-right
+  finder(n - 7, 0);      // bottom-left
+});
+
+test('QR format bits: EC indicator is level M (0b00) and timing modules (6,8),(8,6) are dark', () => {
+  const m = G.qrMatrix(G.PLAY_URL);
+  // timing modules (6,8) and (8,6) must be dark
+  assert.ok(m[6][8], 'timing module (6,8) must be dark');
+  assert.ok(m[8][6], 'timing module (8,6) must be dark');
+  // read 15 format bits from top-left copy in ISO 18004 order (bit 14 first, bit 0 last)
+  // placeFormat writes bit i to p1[i] where p1 is:
+  // [8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]
+  // bit 14→(8,0), bit 13→(8,1), ..., bit 0→(0,8)
+  const p1 = [[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]];
+  let info = 0;
+  for (let i = 0; i < 15; i++) {
+    const [r, c] = p1[i];
+    info = (info << 1) | (m[r][c] ? 1 : 0);
+  }
+  // XOR with 0x5412 (ISO 18004 §7.9)
+  const xorred = info ^ 0x5412;
+  // EC indicator is bits 13-14 of the 5-bit info field (top 2 bits after XOR)
+  const ecBits = (xorred >> 13) & 0b11;
+  assert.equal(ecBits, 0, 'EC indicator bits 13-14 must be 0b00 (level M)');
+});

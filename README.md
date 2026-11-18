@@ -20,7 +20,7 @@ WAVEMIND is a quick, tap-to-play puzzle game about how quantum computers really 
 
 | Mode | For | What it is |
 |---|---|---|
-| **Arcade** | Event booth | A 75-second run with endless generated puzzles. Score comes from solving and from perfect (minimum-move) streaks. The run ends on a 3-letter arcade leaderboard. When nobody is playing, an **attract mode** plays itself. |
+| **Arcade** | Event booth | A 75-second run with endless generated puzzles. Score comes from solving and from perfect (minimum-move) streaks. The run ends on a 3-letter arcade leaderboard with a **"Play at home" QR code** (generated in-game by a dependency-free QR encoder, so it works offline). Booth staff can export the day's scores as CSV and reset the board between event days. When nobody is playing, an **attract mode** plays itself. |
 | **Story** | Players who want more | 5 chapters × 6 levels (Connections, Interference, Deep Networks, Noise, The Spy), unlocked with stars, plus a **final boss built on Grover's search algorithm**. Story levels have a **tap-to-preview, tap-to-confirm** control. |
 | **Daily challenge** | Retention after the event | The same puzzle for everyone each day, with a Wordle-style shareable result. |
 | **Quantum Album** | Story rewards | Every story level unlocks half of an animated collectible card about real quantum phenomena: the double slit, solar fusion tunnelling, entanglement, lasers, superconductors, GPS atomic clocks and more. |

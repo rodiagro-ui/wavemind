@@ -15,6 +15,372 @@
 <canvas id="c"></canvas>
 <script>
 "use strict";
+
+// ============================================================
+//  Minimal QR Code encoder — byte mode, EC level M, versions 1-6
+//  No external dependencies.  Returns array of rows of booleans.
+// ============================================================
+(function () {
+  /* ---- GF(256) arithmetic (polynomial 0x11D) ---- */
+  const GF_EXP = new Uint8Array(512);
+  const GF_LOG = new Uint8Array(256);
+  (function () {
+    let x = 1;
+    for (let i = 0; i < 255; i++) {
+      GF_EXP[i] = x; GF_LOG[x] = i;
+      x = (x << 1) ^ (x >= 128 ? 0x11D : 0);
+    }
+    for (let i = 255; i < 512; i++) GF_EXP[i] = GF_EXP[i - 255];
+  })();
+  function gfMul(a, b) { return a && b ? GF_EXP[GF_LOG[a] + GF_LOG[b]] : 0; }
+
+  /* ---- EC codewords per version (M) — ISO 18004 Table 9 ---- */
+  // [data codewords per block, EC codewords per block]
+  const BLOCKS_M = [
+    [{ d: 16, e: 10 }],   // v1: 1 block, 16 data + 10 EC = 26 total
+    [{ d: 28, e: 16 }],   // v2: 1 block, 28 data + 16 EC = 44
+    [{ d: 44, e: 26 }],   // v3: 1 block, 44 data + 26 EC = 70
+    [{ d: 32, e: 18 }, { d: 32, e: 18 }], // v4: 2 blocks, 64 data + 36 EC = 100
+    [{ d: 43, e: 24 }, { d: 43, e: 24 }], // v5: 2 blocks, 86 data + 48 EC = 134
+    [{ d: 27, e: 16 }, { d: 27, e: 16 }, { d: 27, e: 16 }, { d: 27, e: 16 }] // v6: 4 blocks, 108 data + 64 EC = 172
+  ];
+
+  /* ---- Alignment pattern locations ---- */
+  const ALIGN_POS = [
+    [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34]
+  ];
+
+  /* ---- Reed-Solomon encode ---- */
+  function rsGenPoly(nsym) {
+    let g = [1];
+    for (let i = 0; i < nsym; i++) {
+      const ng = new Array(g.length + 1).fill(0);
+      for (let j = 0; j < g.length; j++) {
+        ng[j] ^= g[j];
+        ng[j + 1] ^= gfMul(g[j], GF_EXP[i]);
+      }
+      g = ng;
+    }
+    return g;
+  }
+  function rsEncode(data, nsym) {
+    const gen = rsGenPoly(nsym);
+    const res = new Uint8Array(data.length + nsym);
+    res.set(data);
+    for (let i = 0; i < data.length; i++) {
+      const coef = res[i];
+      if (coef) {
+        for (let j = 1; j < gen.length; j++) {
+          res[i + j] ^= gfMul(gen[j], coef);
+        }
+      }
+    }
+    return Array.from(res.slice(data.length));
+  }
+
+  /* ---- Build data bitstream ---- */
+  function buildData(text, version) {
+    const cap = BLOCKS_M[version - 1];
+    const totalData = cap.reduce((s, b) => s + b.d, 0);
+    const bytes = [];
+    for (const ch of text) {
+      const c = ch.codePointAt(0);
+      if (c < 0x80) bytes.push(c);
+      else if (c < 0x800) { bytes.push(0xC0 | (c >> 6), 0x80 | (c & 0x3F)); }
+      else { bytes.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 0x3F), 0x80 | (c & 0x3F)); }
+    }
+    const size = bytes.length;
+    const mode = 0b0100; // byte
+    const charBits = version <= 9 ? 8 : 16;
+    const bits = [];
+    const push = (v, n) => { for (let i = n - 1; i >= 0; i--) bits.push((v >> i) & 1); };
+    push(mode, 4); push(size, charBits);
+    for (const b of bytes) push(b, 8);
+    // Check capacity BEFORE padding: 4 (mode) + charBits (count) + 8*bytes data bits
+    const dataBits = 4 + charBits + bytes.length * 8;
+    if (dataBits > totalData * 8) {
+      throw new Error('Overflow');
+    }
+    // terminator + padding
+    const maxBits = totalData * 8;
+    for (let i = 0; i < 4 && bits.length < maxBits; i++) bits.push(0);
+    while (bits.length % 8) bits.push(0);
+    let padByte = 0xEC;
+    while (bits.length < maxBits) {
+      push(padByte, 8);
+      padByte = padByte === 0xEC ? 0x11 : 0xEC;
+    }
+    // split into blocks
+    const dataBytes = [];
+    for (let i = 0; i < bits.length; i += 8) {
+      let v = 0; for (let j = 0; j < 8; j++) v = (v << 1) | bits[i + j];
+      dataBytes.push(v);
+    }
+    // interleave data + EC
+    const allData = [];
+    const allEc = [];
+    let off = 0;
+    for (const blk of cap) {
+      const d = dataBytes.slice(off, off + blk.d);
+      allData.push(d);
+      allEc.push(rsEncode(d, blk.e));
+      off += blk.d;
+    }
+    const result = [];
+    const maxD = Math.max(...allData.map(b => b.length));
+    for (let i = 0; i < maxD; i++) {
+      for (let j = 0; j < allData.length; j++) {
+        if (i < allData[j].length) result.push(allData[j][i]);
+      }
+    }
+    const maxE = Math.max(...allEc.map(b => b.length));
+    for (let i = 0; i < maxE; i++) {
+      for (let j = 0; j < allEc.length; j++) {
+        if (i < allEc[j].length) result.push(allEc[j][i]);
+      }
+    }
+    return result;
+  }
+
+  /* ---- Place finder patterns, alignment, timing, format, version ---- */
+  function createMatrix(version) {
+    const size = 17 + 4 * version;
+    const m = Array.from({ length: size }, () => new Int8Array(size)); // 0=unset, 1=dark, 2=light
+    const isFunc = Array.from({ length: size }, () => new Uint8Array(size)); // function modules
+    const inBounds = (r, c) => r >= 0 && r < size && c >= 0 && c < size;
+    const set = (r, c, v) => {
+      if (!inBounds(r, c)) return;
+      m[r][c] = v ? 1 : 2;
+      isFunc[r][c] = 1;
+    };
+    const mask = (r, c) => { if (inBounds(r, c)) return m[r][c]; return 0; };
+    const setFinder = (cr, cc) => {
+      for (let r = -1; r <= 7; r++) for (let c = -1; c <= 7; c++) {
+        const rr = cr + r, cc2 = cc + c;
+        if (!inBounds(rr, cc2)) continue;
+        if ((r >= 0 && r <= 6 && (c === 0 || c === 6)) ||
+            (c >= 0 && c <= 6 && (r === 0 || r === 6)) ||
+            (r >= 2 && r <= 4 && c >= 2 && c <= 4)) set(rr, cc2, true);
+        else set(rr, cc2, false);
+      }
+    };
+    setFinder(0, 0); setFinder(0, size - 7); setFinder(size - 7, 0);
+    // alignment (standard 5x5: dark centre, light ring at dist 1, dark ring at dist 2)
+    const pos = ALIGN_POS[version - 1];
+    if (pos.length) {
+      for (const r of pos) for (const c of pos) {
+        if (mask(r, c) === 0) {
+          for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+            const m = Math.max(Math.abs(dr), Math.abs(dc));
+            // dark outer ring (m=2) + dark centre (m=0); light middle ring (m=1)
+            set(r + dr, c + dc, m !== 1);
+          }
+        }
+      }
+    }
+    // timing
+    for (let i = 8; i < size - 8; i++) {
+      if (mask(6, i) === 0) set(6, i, i % 2 === 0);
+      if (mask(i, 6) === 0) set(i, 6, i % 2 === 0);
+    }
+    // dark module
+    set(size - 8, 8, true);
+    // reserve format bits
+    for (let i = 0; i <= 8; i++) { if (i !== 6) { set(8, i, false); set(i, 8, false); } }
+    for (let i = 0; i < 8; i++) { set(8, size - 1 - i, false); }
+    for (let i = 0; i < 7; i++) { set(size - 1 - i, 8, false); }
+    set(8, 8, false);
+    // reserve version bits (v7+)
+    if (version >= 7) {
+      for (let i = 0; i < 6; i++) for (let j = 0; j < 3; j++) {
+        set(i, size - 11 + j, false); set(size - 11 + j, i, false);
+      }
+    }
+    return { m, size, isFunc };
+  }
+
+  /* ---- Place data bits ---- */
+  function placeData(m, size, data) {
+    const bits = [];
+    for (const b of data) for (let i = 7; i >= 0; i--) bits.push((b >> i) & 1);
+    let bi = 0;
+    let col = size - 1, up = true;
+    while (col >= 0) {
+      if (col === 6) col--; // skip timing column
+      const r0 = up ? size - 1 : 0;
+      for (let step = 0; step < size; step++) {
+        const r = up ? r0 - step : r0 + step;
+        for (let dc = 0; dc < 2; dc++) {
+          const c = col - dc;
+          if (c < 0) continue;
+          if (m[r][c] === 0) {
+            const bit = bi < bits.length ? bits[bi++] : 0;
+            m[r][c] = bit ? 1 : 2;
+          }
+        }
+      }
+      col -= 2; up = !up;
+    }
+  }
+
+  /* ---- Mask functions ---- */
+  const MASK_FN = [
+    (r, c) => (r + c) % 2 === 0,
+    (r) => r % 2 === 0,
+    (_, c) => c % 3 === 0,
+    (r, c) => (r + c) % 3 === 0,
+    (r, c) => (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0,
+    (r, c) => (r * c) % 2 + (r * c) % 3 === 0,
+    (r, c) => ((r * c) % 2 + (r * c) % 3) % 2 === 0,
+    (r, c) => ((r + c) % 2 + (r * c) % 3) % 2 === 0,
+  ];
+
+  function applyMask(m, size, isFunc, mask) {
+    const fn = MASK_FN[mask];
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
+      if (isFunc[r][c]) continue;
+      if (fn(r, c)) m[r][c] = m[r][c] === 1 ? 2 : 1;
+    }
+  }
+
+  /* ---- Format info (15 bits, with mask) ---- */
+  function formatBits(mask) {
+    // EC level M = 0b00 (binary) => value 0 in the 2-bit field (L=01, M=00, Q=11, H=10)
+    // Format: EC(2 bits) | mask(3 bits)
+    let info = (0 << 3) | mask; // 5 bits, EC level M = 0
+    // BCH(15,5) with generator 10100110111
+    let bch = info << 10;
+    for (let i = 4; i >= 0; i--) {
+      if (bch & (1 << (10 + i))) {
+        bch ^= 0b10100110111 << i;
+      }
+    }
+    info = ((info << 10) | bch) ^ 0b101010000010010;
+    return info;
+  }
+
+  function placeFormat(m, size, info) {
+    const bits = [];
+    for (let i = 14; i >= 0; i--) bits.push((info >> i) & 1);
+    // around top-left finder
+    const p1 = [[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]];
+    const p2 = [[size-1,8],[size-2,8],[size-3,8],[size-4,8],[size-5,8],[size-6,8],[size-7,8],[8,size-8],[8,size-7],[8,size-6],[8,size-5],[8,size-4],[8,size-3],[8,size-2],[8,size-1]];
+    for (let i = 0; i < 15; i++) {
+      const [r1, c1] = p1[i], [r2, c2] = p2[i];
+      m[r1][c1] = bits[i] ? 1 : 2;
+      m[r2][c2] = bits[i] ? 1 : 2;
+    }
+  }
+
+  /* ---- Penalty scoring ---- */
+  function penalty(m, size) {
+    let score = 0;
+    // Rule 1: consecutive same-color modules in row/col (5+)
+    for (let r = 0; r < size; r++) {
+      let run = 1;
+      for (let c = 1; c < size; c++) {
+        if (m[r][c] === m[r][c - 1]) { run++; if (run === 5) score += 3; else if (run > 5) score++; }
+        else run = 1;
+      }
+      run = 1;
+      for (let c = 1; c < size; c++) {
+        if (m[c][r] === m[c - 1][r]) { run++; if (run === 5) score += 3; else if (run > 5) score++; }
+        else run = 1;
+      }
+    }
+    // Rule 2: 2x2 blocks
+    for (let r = 0; r < size - 1; r++) for (let c = 0; c < size - 1; c++) {
+      if (m[r][c] === m[r][c + 1] && m[r][c] === m[r + 1][c] && m[r][c] === m[r + 1][c + 1]) score += 3;
+    }
+    // Rule 3: finder-like patterns
+    const pat = (arr) => arr[0]===1&&arr[1]===2&&arr[2]===1&&arr[3]===2&&arr[4]===1&&arr[5]===2&&arr[6]===2&&arr[7]===2&&arr[8]===1&&arr[9]===2;
+    for (let r = 0; r < size; r++) for (let c = 0; c <= size - 10; c++) {
+      const row = []; for (let i = 0; i < 10; i++) row.push(m[r][c + i]);
+      if (pat(row)) score += 40;
+    }
+    for (let c = 0; c < size; c++) for (let r = 0; r <= size - 10; r++) {
+      const col = []; for (let i = 0; i < 10; i++) col.push(m[r + i][c]);
+      if (pat(col)) score += 40;
+    }
+    // Rule 4: proportion of dark modules
+    let dark = 0;
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) if (m[r][c] === 1) dark++;
+    const pct = dark * 100 / (size * size);
+    const prev5 = Math.floor(pct / 5) * 5;
+    const next5 = prev5 + 5;
+    score += Math.min(Math.abs(prev5 - 50) / 5, Math.abs(next5 - 50) / 5) * 10;
+    return score;
+  }
+
+  /* ---- Main entry: qrMatrix(text) ---- */
+  const qrMatrix = (function () {
+    const cache = {};
+    return function (text) {
+      if (cache[text]) return cache[text];
+      // find smallest version that fits
+      for (let v = 1; v <= 6; v++) {
+        let data;
+        try {
+          data = buildData(text, v);
+        } catch (e) { continue; } // overflow — try next version
+        const cap = BLOCKS_M[v - 1];
+        const totalCodewords = cap.reduce((s, b) => s + b.d + b.e, 0);
+        if (data.length > totalCodewords) continue;
+        // try all masks
+        let bestMask = 0, bestScore = Infinity, bestM = null;
+        for (let mask = 0; mask < 8; mask++) {
+          const { m, size, isFunc } = createMatrix(v);
+          placeData(m, size, data);
+          applyMask(m, size, isFunc, mask);
+          placeFormat(m, size, formatBits(mask));
+          const sc = penalty(m, size);
+          if (sc < bestScore) { bestScore = sc; bestMask = mask; bestM = m; }
+        }
+        const result = [];
+        for (let r = 0; r < bestM.length; r++) {
+          const row = [];
+          for (let c = 0; c < bestM[r].length; c++) row.push(bestM[r][c] === 1);
+          result.push(row);
+        }
+        cache[text] = result;
+        return result;
+      }
+      throw new Error('Text too long for QR v1-6');
+    };
+  })();
+
+  // expose
+  window.qrMatrix = qrMatrix;
+})();
+
+// ---------- QR for "Play at home" ----------
+const PLAY_URL = 'https://rodiagro-ui.github.io/wavemind/';
+const _qrCache = qrMatrix(PLAY_URL);
+
+function drawQR(x, y, size) {
+  const matrix = _qrCache;
+  const n = matrix.length;
+  const quiet = 4;
+  const total = n + quiet * 2;
+  const modSize = Math.floor(size / total);
+  const actual = modSize * total;
+  const ox = x + (size - actual) / 2;
+  const oy = y + (size - actual) / 2;
+  // white card with rounded corners
+  const pad = 6;
+  roundRect(ox - pad, oy - pad, actual + pad * 2, actual + pad * 2, 10);
+  ctx.fillStyle = '#fff'; ctx.fill();
+  // quiet zone is already white
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (matrix[r][c]) {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(ox + (quiet + c) * modSize, oy + (quiet + r) * modSize, modSize, modSize);
+      }
+    }
+  }
+}
+
 // Q-BRAIN: reconectá los cables de una IA cuántica para que resuelva el problema del momento.
 // Física (de juguete pero honesta): cada neurona reparte su amplitud entre sus cables activos (a/√k,
 // así se conserva la probabilidad). Un cable inversor (π) cambia el signo de la amplitud. En cada neurona
@@ -691,12 +1057,17 @@ function drawAttract() {
   if (att.done >= 0) { const n = lv.nodes[lv.outputs[outcome]], k = Math.min(1, att.done / 1.2); ctx.lineWidth = 4; ctx.strokeStyle = rgba(TH.ink, 1 - k); ctx.beginPath(); ctx.arc(n.x, n.y, 30 + 160 * k, 0, 7); ctx.stroke(); }
   const g = ctx.createLinearGradient(0, 1030, 0, H); g.addColorStop(0, 'rgba(3,6,12,0)'); g.addColorStop(0.35, 'rgba(3,6,12,0.92)'); g.addColorStop(1, 'rgba(3,6,12,0.97)');
   ctx.fillStyle = g; ctx.fillRect(0, 1030, W, H - 1030);
-  ctx.save(); glowOn(TH.accent, 24); ctx.textAlign = 'center'; ctx.fillStyle = TH.accent; ctx.font = `700 ${46 + 4 * Math.sin(T * 4)}px ${F}`;
-  ctx.fillText(L('TOCÁ PARA JUGAR', 'TAP TO PLAY'), W / 2, 1140); ctx.restore();
+  // two columns under the answers: text on the left, QR on the right (nothing overlaps the answer bars, which end near y=1070)
+  const qrSize = 150, qrX = W - qrSize - 18, qrY = 1112, cx = (qrX - 12) / 2 + 6, colW = qrX - 30;
+  ctx.save(); glowOn(TH.accent, 24); ctx.textAlign = 'center'; ctx.fillStyle = TH.accent; ctx.font = `700 ${44 + 3 * Math.sin(T * 4)}px ${F}`;
+  ctx.fillText(L('TOCÁ PARA JUGAR', 'TAP TO PLAY'), cx, 1160, colW); ctx.restore();
   const b = (save.board || []).slice(0, 3);
-  ctx.textAlign = 'center'; ctx.fillStyle = TH.gold; ctx.font = `700 19px ${F}`;
-  ctx.fillText(b.length ? '🏆 ' + b.map((e, i) => `${i + 1}. ${e.n} ${e.s}`).join('   ') : L('🏆 ¡Sé el primero del ranking!', '🏆 Be the first on the leaderboard!'), W / 2, 1200);
-  ctx.fillStyle = TH.sub; ctx.font = `17px ${F}`; ctx.fillText(L('Las computadoras cuánticas cancelan las respuestas falsas', 'Quantum computers cancel the wrong answers'), W / 2, 1240);
+  ctx.textAlign = 'center'; ctx.fillStyle = TH.gold; ctx.font = `700 18px ${F}`;
+  ctx.fillText(b.length ? '🏆 ' + b.map((e, i) => `${i + 1}. ${e.n} ${e.s}`).join('   ') : L('🏆 ¡Sé el primero del ranking!', '🏆 Be the first on the leaderboard!'), cx, 1210, colW);
+  ctx.fillStyle = TH.sub; ctx.font = `16px ${F}`; ctx.fillText(L('Las computadoras cuánticas cancelan las respuestas falsas', 'Quantum computers cancel the wrong answers'), cx, 1248, colW);
+  ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = `700 15px ${F}`;
+  ctx.fillText(L('Jugá en tu celu', 'Play on your phone'), qrX + qrSize / 2, qrY - 10);
+  drawQR(qrX, qrY, qrSize);
 }
 function drawInitials() {
   drawBackground(); ctx.textAlign = 'center';
@@ -714,23 +1085,41 @@ function drawInitials() {
 }
 function drawBoard() {
   drawBackground(); ctx.textAlign = 'center';
+  const afterRun = arc && mode === 'arcade';
   ctx.fillStyle = TH.gold; ctx.font = `700 42px ${F}`; ctx.fillText(L('🏆 RANKING', '🏆 LEADERBOARD'), W / 2, 110);
-  if (arc && mode === 'arcade') { ctx.fillStyle = TH.sub; ctx.font = `20px ${F}`; ctx.fillText(L(`Tu puntaje: ${arc.score} · ${arc.solved} resueltos · racha ×${arc.best}`, `Your score: ${arc.score} · ${arc.solved} solved · best streak ×${arc.best}`), W / 2, 156); }
+  if (afterRun) { ctx.fillStyle = TH.sub; ctx.font = `20px ${F}`; ctx.fillText(L(`Tu puntaje: ${arc.score} · ${arc.solved} resueltos · racha ×${arc.best}`, `Your score: ${arc.score} · ${arc.solved} solved · best streak ×${arc.best}`), W / 2, 156); }
   const b = save.board || [];
+  const maxRows = afterRun ? 5 : b.length;
   if (!b.length) { ctx.fillStyle = TH.faint; ctx.font = `22px ${F}`; ctx.fillText(L('Todavía no hay puntajes', 'No scores yet'), W / 2, 400); }
-  b.forEach((e, i) => {
-    const y = 200 + i * 72, me = arc && mode === 'arcade' && i === arc.entry;
+  for (let i = 0; i < maxRows; i++) {
+    const e = b[i], y = 200 + i * 72, me = afterRun && i === arc.entry;
     roundRect(60, y, W - 120, 60, 14); ctx.fillStyle = me ? rgba(TH.pos, 0.18) : TH.card; ctx.fill(); ctx.lineWidth = me ? 3 : 1.5; ctx.strokeStyle = me ? TH.accent : TH.cardLine; ctx.stroke();
     ctx.textAlign = 'left'; ctx.fillStyle = i < 3 ? TH.gold : TH.sub; ctx.font = `700 26px ${F}`; ctx.fillText((i + 1) + '.', 84, y + 40);
     ctx.fillStyle = TH.text; ctx.fillText(e.n, 150, y + 40);
     ctx.fillStyle = TH.faint; ctx.font = `17px ${F}`; ctx.fillText(L(`${e.p || 0} resueltos`, `${e.p || 0} solved`), 260, y + 39);
     ctx.textAlign = 'right'; ctx.fillStyle = TH.text; ctx.font = `700 28px ${F}`; ctx.fillText(e.s, W - 84, y + 41);
-  });
-  button('again2', W / 2 - 250, 950, 240, 72, L('▶  JUGAR', '▶  PLAY'), TH.good, true);
-  button('menu2', W / 2 + 10, 950, 240, 72, L('Menú', 'Menu'), TH.sub);
-  const resetLabel = resetConfirmTimer > 0 ? L('⚠ ¿Seguro? Tocá', '⚠ Sure? Tap again') : L('🗑 Reiniciar', '🗑 Reset');
-  button('exportCsv', W / 2 - 250, 1050, 240, 50, L('⬇ Exportar CSV', '⬇ Export CSV'), TH.sub);
-  button('resetBoard', W / 2 + 10, 1050, 240, 50, resetLabel, resetConfirmTimer > 0 ? TH.warn : TH.sub);
+  }
+  if (afterRun) {
+    // QR panel from y=590 to y=920
+    const qrY = 590, panelH = 330;
+    roundRect(60, qrY, W - 120, panelH, 16);
+    ctx.fillStyle = TH.dark ? 'rgba(255,255,255,0.04)' : '#f8f9fc'; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = TH.cardLine; ctx.stroke();
+    // QR code centred, size 240
+    drawQR(W / 2 - 120, qrY + 20, 240);
+    // label below QR
+    ctx.textAlign = 'center'; ctx.fillStyle = TH.text; ctx.font = `20px ${F}`;
+    ctx.fillText(L('📱 Escaneá y seguí jugando en casa · un desafío nuevo cada día', '📱 Scan to play at home · new puzzle every day'), W / 2, qrY + panelH - 30);
+    // buttons below panel
+    button('again2', W / 2 - 250, 950, 240, 72, L('▶  JUGAR', '▶  PLAY'), TH.good, true);
+    button('menu2', W / 2 + 10, 950, 240, 72, L('Menú', 'Menu'), TH.sub);
+  } else {
+    button('again2', W / 2 - 250, 950, 240, 72, L('▶  JUGAR', '▶  PLAY'), TH.good, true);
+    button('menu2', W / 2 + 10, 950, 240, 72, L('Menú', 'Menu'), TH.sub);
+    const resetLabel = resetConfirmTimer > 0 ? L('⚠ ¿Seguro? Tocá', '⚠ Sure? Tap again') : L('🗑 Reiniciar', '🗑 Reset');
+    button('exportCsv', W / 2 - 250, 1050, 240, 50, L('⬇ Exportar CSV', '⬇ Export CSV'), TH.sub);
+    button('resetBoard', W / 2 + 10, 1050, 240, 50, resetLabel, resetConfirmTimer > 0 ? TH.warn : TH.sub);
+  }
 }
 function popup(text, x, y, col, size) { popups.push({ text, x, y, col, size: size || 22, t: 0, life: 1.1 }); }
 function drawPopups() { for (const p of popups) { ctx.globalAlpha = Math.max(0, 1 - p.t / p.life); ctx.fillStyle = p.col || TH.sub; ctx.font = `700 ${p.size}px ${F}`; ctx.textAlign = 'center'; ctx.fillText(p.text, p.x, p.y - 40 * p.t); ctx.globalAlpha = 1; } }

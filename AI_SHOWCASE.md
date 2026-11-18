@@ -57,6 +57,7 @@ The bots made the feedback concrete. "Is it skill or luck?" was answered with wi
 |---|---|---|---|
 | 1 | Colorblind-friendly mode: a title-screen toggle; π cables drawn dashed with +/− glyphs; strings in both languages; physics untouched; `npm test` must stay green | Shipped after **3 review rounds** (below) | Claude + author |
 | 2 | Event-booth tools on the leaderboard: export the day's scores as CSV; two-tap safe reset with no blocking dialogs; dates stored on entries | Shipped after **2 review rounds** (below) | Claude + author |
+| 3 | "Play at home" QR code with **no libraries**: a from-scratch QR encoder (byte mode, ECC M, Reed–Solomon over GF(256), 8 masks with penalty scoring), shown after an arcade run and in attract mode | Shipped after **3 review rounds**; Claude finished the attract-mode layout | Claude + author |
 
 **Task 1, round by round** (Junie Lite through JetBrains Air in WebStorm, 18-Nov-2026)
 
@@ -86,9 +87,29 @@ Learning from task 1, the brief already gave exact coordinates, the data format 
 - the confirmation message;
 - the exact CSV output, including legacy entries without a date.
 
+**Task 3, round by round: a QR code that has to actually scan**
+
+The game is a single file with zero dependencies, and booths often have bad Wi-Fi. So we asked Junie to write a QR encoder from scratch. For verification, Claude rendered the matrix to a PNG and decoded it with OpenCV's `QRCodeDetector`. Unit tests passing was not enough; the code had to scan.
+
+**Round 1.** Tests passed, but OpenCV decoded nothing. The matrix was 21×21 (version 1), which can't hold a 39-byte URL. Review found four problems:
+- the capacity tables were level L, not M;
+- overflow was never detected;
+- the EC-level bits were wrong;
+- the function-module mask was computed incorrectly.
+
+**Round 2.** The size was now correct (29×29, version 3), but it still didn't scan. Claude wrote an independent reference encoder in Python, which OpenCV decodes, and compared the two matrices module by module:
+- **All 70 of Junie's codewords** (data plus Reed–Solomon) **were byte-for-byte correct.**
+- The failure was three placement bugs: a wrong format-info XOR constant (it must be `0x5412`), timing modules overwritten, and **one unreserved module at (7,8)** that shifted every later data bit by one.
+- Claude verified the exact fix on a copy before handing it over.
+
+**Round 3.** Junie applied the fix and added a regression test for the format bits. Then:
+- OpenCV decodes `https://rodiagro-ui.github.io/wavemind/` from the engine output **and from screen captures of both QR placements**, even at half size.
+- The small attract-mode QR overlapped the answer bars, so Claude reworked that layout into two columns: text on the left, QR on the right.
+
 ### Lessons about working with two agents
 - **Tests guard the physics, not the pixels.** All three of Junie's rounds passed the 8 engine tests, yet two rounds still had visible bugs. The fix was a second agent that *looks at the screen*.
 - **Specific reviews get specific fixes.** Feedback with exact coordinates and array indices was fixed on the first try every time.
+- **Verify with an independent oracle.** For the QR code, "tests pass" meant nothing until a real decoder read it. A second, independent implementation found a one-module bug in minutes that the tests couldn't express.
 - **The human stays the editor-in-chief.** The author decided what to build, routed the review between agents and approved the result. Neither AI merged its own work unchecked.
 
 ## Honest limits
