@@ -56,6 +56,7 @@ The bots made the feedback concrete. "Is it skill or luck?" was answered with wi
 | # | Task given to Junie | Result | Reviewed by |
 |---|---|---|---|
 | 1 | Colorblind-friendly mode: a title-screen toggle; π cables drawn dashed with +/− glyphs; strings in both languages; physics untouched; `npm test` must stay green | Shipped after **3 review rounds** (below) | Claude + author |
+| 2 | Event-booth tools on the leaderboard: export the day's scores as CSV; two-tap safe reset with no blocking dialogs; dates stored on entries | Shipped after **2 review rounds** (below) | Claude + author |
 
 **Task 1, round by round** (Junie Lite through JetBrains Air in WebStorm, 18-Nov-2026)
 
@@ -69,6 +70,21 @@ The bots made the feedback concrete. "Is it skill or luck?" was answered with wi
 **Round 2.** The author pasted Claude's review into Junie, and Junie fixed all five points. Claude's visual check then found the new button overlapping the language button by 80 px. Junie's own summary had said "nothing cut off".
 
 **Round 3.** A precise layout fix (three 160-px buttons). Claude verified it on screen: toggling works in both languages and the tests stay green.
+
+**Task 2, round by round**
+
+Learning from task 1, the brief already gave exact coordinates, the data format and a "no alert()/confirm()" rule.
+
+**Round 1.** It worked logically, and the tests passed. Claude's review found three problems:
+- The confirm label overflowed its button (verified on screen).
+- The "Exported!" and "Leaderboard reset!" feedback could never appear, because the leaderboard draw branch returned before the popup loop.
+- The object URL was revoked synchronously after `click()`, which can cancel downloads in Safari and Firefox.
+
+**Round 2.** Junie fixed all three and refactored the popup drawing into a shared `drawPopups()` helper. Claude verified everything:
+- the two-tap reset on screen;
+- the warning colour and label fit;
+- the confirmation message;
+- the exact CSV output, including legacy entries without a date.
 
 ### Lessons about working with two agents
 - **Tests guard the physics, not the pixels.** All three of Junie's rounds passed the 8 engine tests, yet two rounds still had visible bugs. The fix was a second agent that *looks at the screen*.

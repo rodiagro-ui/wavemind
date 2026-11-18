@@ -578,7 +578,7 @@ function arcadeOver() {
   if (arc.qualifies) { state = 'initials'; initials = (save.lastInit || 'AAA').split(''); initPos = 0; } else state = 'board';
 }
 function commitInitials() {
-  const name = initials.join(''), b = save.board || (save.board = []), entry = { n: name, s: arc.score, p: arc.solved };
+  const name = initials.join(''), b = save.board || (save.board = []), entry = { n: name, s: arc.score, p: arc.solved, d: Date.now() };
   save.lastInit = name; b.push(entry); b.sort((x, y) => y.s - x.s); save.board = b.slice(0, 10);
   arc.entry = save.board.indexOf(entry); persist(); state = 'board';
 }
@@ -728,8 +728,42 @@ function drawBoard() {
   });
   button('again2', W / 2 - 250, 950, 240, 72, L('▶  JUGAR', '▶  PLAY'), TH.good, true);
   button('menu2', W / 2 + 10, 950, 240, 72, L('Menú', 'Menu'), TH.sub);
+  const resetLabel = resetConfirmTimer > 0 ? L('⚠ ¿Seguro? Tocá', '⚠ Sure? Tap again') : L('🗑 Reiniciar', '🗑 Reset');
+  button('exportCsv', W / 2 - 250, 1050, 240, 50, L('⬇ Exportar CSV', '⬇ Export CSV'), TH.sub);
+  button('resetBoard', W / 2 + 10, 1050, 240, 50, resetLabel, resetConfirmTimer > 0 ? TH.warn : TH.sub);
 }
 function popup(text, x, y, col, size) { popups.push({ text, x, y, col, size: size || 22, t: 0, life: 1.1 }); }
+function drawPopups() { for (const p of popups) { ctx.globalAlpha = Math.max(0, 1 - p.t / p.life); ctx.fillStyle = p.col || TH.sub; ctx.font = `700 ${p.size}px ${F}`; ctx.textAlign = 'center'; ctx.fillText(p.text, p.x, p.y - 40 * p.t); ctx.globalAlpha = 1; } }
+
+// ---------- leaderboard tools (export / reset) ----------
+let resetConfirmTimer = 0;
+function exportCsv() {
+  const b = save.board || [];
+  if (!b.length) { popup(L('No hay puntajes para exportar', 'No scores to export'), W / 2, 600, TH.warn, 22); return; }
+  let csv = 'rank,initials,score,solved,date\n';
+  b.forEach((e, i) => {
+    const date = e.d ? new Date(e.d).toISOString() : '';
+    csv += `${i + 1},${e.n},${e.s},${e.p || 0},${date}\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const now = new Date();
+  const fname = `wavemind_leaderboard_${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.csv`;
+  const a = document.createElement('a');
+  a.href = url; a.download = fname; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  popup(L('¡Exportado!', 'Exported!'), W / 2, 600, TH.good, 26);
+}
+function handleReset() {
+  if (resetConfirmTimer > 0) {
+    save.board = []; persist();
+    resetConfirmTimer = 0;
+    popup(L('¡Ranking reiniciado!', 'Leaderboard reset!'), W / 2, 600, TH.good, 26);
+  } else {
+    resetConfirmTimer = 3;
+  }
+}
 
 // ---------- sonido ----------
 let AC = null;
@@ -792,7 +826,13 @@ cv.addEventListener('pointerdown', ev => {
     return;
   }
   if (state === 'dailyWon') { if (inRect(x, y, BTN.share)) shareDaily(); else if (inRect(x, y, BTN.menu3)) { mode = 'story'; state = 'title'; } return; }
-  if (state === 'board') { if (inRect(x, y, BTN.again2)) startArcade(); else if (inRect(x, y, BTN.menu2)) { mode = 'story'; state = 'title'; } return; }
+  if (state === 'board') {
+    if (inRect(x, y, BTN.again2)) startArcade();
+    else if (inRect(x, y, BTN.menu2)) { mode = 'story'; state = 'title'; }
+    else if (inRect(x, y, BTN.exportCsv)) exportCsv();
+    else if (inRect(x, y, BTN.resetBoard)) handleReset();
+    return;
+  }
   if (state === 'science') { if (inRect(x, y, BTN.back)) state = 'title'; return; }
   if (state === 'chapters') {
     if (inRect(x, y, BTN.back)) { state = 'title'; return; }
@@ -1648,11 +1688,11 @@ function draw() {
   if (state === 'chapters') { drawChapters(); ctx.restore(); return; }
   if (state === 'attract') { drawAttract(); ctx.restore(); return; }
   if (state === 'initials') { drawInitials(); ctx.restore(); return; }
-  if (state === 'board') { drawBoard(); ctx.restore(); return; }
-  if (state === 'dailyWon') { drawDailyWon(); for (const p of popups) { ctx.globalAlpha = Math.max(0, 1 - p.t / p.life); ctx.fillStyle = p.col || TH.sub; ctx.font = `700 ${p.size}px ${F}`; ctx.textAlign = 'center'; ctx.fillText(p.text, p.x, p.y - 40 * p.t); ctx.globalAlpha = 1; } ctx.restore(); return; }
+  if (state === 'board') { drawBoard(); drawPopups(); ctx.restore(); return; }
+  if (state === 'dailyWon') { drawDailyWon(); drawPopups(); ctx.restore(); return; }
   if (state === 'card') { drawCardView(); ctx.restore(); return; }
   drawBackground(); drawNet(); drawHud(); drawPreview(); drawHand();
-  for (const p of popups) { ctx.globalAlpha = Math.max(0, 1 - p.t / p.life); ctx.fillStyle = p.col || TH.sub; ctx.font = `700 ${p.size}px ${F}`; ctx.textAlign = 'center'; ctx.fillText(p.text, p.x, p.y - 40 * p.t); ctx.globalAlpha = 1; }
+  drawPopups();
   drawOverlay();
   ctx.restore();
 }
@@ -1660,6 +1700,7 @@ function draw() {
 function update(dt) {
   T += dt; stT += dt; if (toast) toast.t += dt; shakeT = Math.max(0, shakeT - dt); flashT = Math.max(0, flashT - dt);
   popups.forEach(p => p.t += dt); popups = popups.filter(p => p.t < p.life);
+  resetConfirmTimer = Math.max(0, resetConfirmTimer - dt);
   idleT += dt;
   if (state === 'title' && idleT > 20) startAttract();
   if (state === 'board' && idleT > 40) startAttract();
