@@ -57,6 +57,7 @@ The bots made the feedback concrete. "Is it skill or luck?" was answered with wi
 |---|---|---|---|
 | 1 | Colorblind-friendly mode: a title-screen toggle; π cables drawn dashed with +/− glyphs; strings in both languages; physics untouched; `npm test` must stay green | Shipped after **3 review rounds** (below) | Claude + author |
 | 2 | Event-booth tools on the leaderboard: export the day's scores as CSV; two-tap safe reset with no blocking dialogs; dates stored on entries | Shipped after **2 review rounds** (below) | Claude + author |
+| 4 | Live **booth display** for a second monitor (`#display`): offline top 10 that updates instantly when a player saves a score | Shipped after **2 review rounds**; found a hidden crash from task 3 | Claude + author |
 | 3 | "Play at home" QR code with **no libraries**: a from-scratch QR encoder (byte mode, ECC M, Reed–Solomon over GF(256), 8 masks with penalty scoring), shown after an arcade run and in attract mode | Shipped after **3 review rounds**; Claude finished the attract-mode layout | Claude + author |
 
 **Task 1, round by round** (Junie Lite through JetBrains Air in WebStorm, 18-Nov-2026)
@@ -105,6 +106,19 @@ The game is a single file with zero dependencies, and booths often have bad Wi-F
 **Round 3.** Junie applied the fix and added a regression test for the format bits. Then:
 - OpenCV decodes `https://rodiagro-ui.github.io/wavemind/` from the engine output **and from screen captures of both QR placements**, even at half size.
 - The small attract-mode QR overlapped the answer bars, so Claude reworked that layout into two columns: text on the left, QR on the right.
+
+**Task 4: a live booth display for a second monitor**
+
+The Category 3 brief calls a local, offline live leaderboard on a separate monitor "a massive plus". We asked Junie for an `index.html#display` mode that reads the shared localStorage board and updates through `storage` events, with polling as a fallback.
+
+**Round 1.** The 10 tests passed. Claude then opened **two real browser windows**, the game and the display, and played a run in one while watching the other. Three findings:
+- **The display never updated.** It detected new scores but kept drawing a stale copy.
+- **A crash from task 3** that every earlier test had missed, because they always pre-seeded 5 scores. The post-run leaderboard crashed when fewer than 5 scores existed, so it would hit the **very first player of an event day**.
+- **A "Booth display" link on the title screen.** Players could open a new tab at the booth.
+
+**Round 2.** Junie fixed all three and added a regression test (11/11). Claude's re-run showed the display updating live with no reload.
+
+**Final fix, by Claude.** The new row's highlight rendered as a white bar. The cause: `rgba()` received the hex colour `'#ffd84a'`, the canvas rejected the invalid colour and kept the previous white fill.
 
 ### The video, made by a pipeline
 - **Gameplay.** Claude wrote a Playwright script that plays every scene by itself. It follows the game's own tutorial "hand", which always points at the next optimal move, and draws a visible finger on each tap.

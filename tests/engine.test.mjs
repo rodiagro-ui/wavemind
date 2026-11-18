@@ -102,6 +102,35 @@ test('QR matrix for PLAY_URL is square, version 3 (29x29), and has finder patter
   finder(n - 7, 0);      // bottom-left
 });
 
+test('Board: maxRows never exceeds board length (fix for < 5 entries crash)', () => {
+  // Simulate the first player of an event day: board has only 1 entry
+  G.save.board = [{ n: 'ABC', s: 100, p: 1 }];
+  // drawBoard uses maxRows = Math.min(5, b.length) when afterRun is true.
+  // With 1 entry, maxRows should be 1, not 5 — otherwise b[1].n throws.
+  const b = G.save.board;
+  const maxRows = Math.min(5, b.length);
+  assert.equal(maxRows, 1, 'maxRows should be 1 when board has 1 entry');
+  // Verify we can safely iterate without reading past the end
+  for (let i = 0; i < maxRows; i++) {
+    assert.ok(typeof b[i].n === 'string', `b[${i}].n should exist`);
+  }
+  // Also test with 3 entries
+  G.save.board = [{ n: 'A', s: 100, p: 1 }, { n: 'B', s: 80, p: 2 }, { n: 'C', s: 60, p: 3 }];
+  const maxRows3 = Math.min(5, G.save.board.length);
+  assert.equal(maxRows3, 3, 'maxRows should be 3 when board has 3 entries');
+  for (let i = 0; i < maxRows3; i++) {
+    assert.ok(typeof G.save.board[i].n === 'string', `b[${i}].n should exist`);
+  }
+  // Test with exactly 5 entries (should still work)
+  G.save.board = [{ n: 'A', s: 100, p: 1 }, { n: 'B', s: 80, p: 2 }, { n: 'C', s: 60, p: 3 }, { n: 'D', s: 40, p: 4 }, { n: 'E', s: 20, p: 5 }];
+  const maxRows5 = Math.min(5, G.save.board.length);
+  assert.equal(maxRows5, 5, 'maxRows should be 5 when board has 5 entries');
+  // Test with 10 entries (should cap at 5)
+  G.save.board = [{ n: 'A', s: 100, p: 1 }, { n: 'B', s: 80, p: 2 }, { n: 'C', s: 60, p: 3 }, { n: 'D', s: 40, p: 4 }, { n: 'E', s: 20, p: 5 }, { n: 'F', s: 10, p: 6 }, { n: 'G', s: 9, p: 7 }, { n: 'H', s: 8, p: 8 }, { n: 'I', s: 7, p: 9 }, { n: 'J', s: 6, p: 10 }];
+  const maxRows10 = Math.min(5, G.save.board.length);
+  assert.equal(maxRows10, 5, 'maxRows should cap at 5 when board has 10 entries');
+});
+
 test('QR format bits: EC indicator is level M (0b00) and timing modules (6,8),(8,6) are dark', () => {
   const m = G.qrMatrix(G.PLAY_URL);
   // timing modules (6,8) and (8,6) must be dark

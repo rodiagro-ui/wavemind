@@ -55,6 +55,16 @@ It is a single HTML file with no build step and no dependencies. Open `index.htm
 npx serve .
 ```
 
+## Running it at a booth
+
+WAVEMIND supports a **booth display mode** for a second monitor that shows a live leaderboard — no Wi-Fi needed. Both windows share the same `localStorage` on the same machine, so the display updates automatically when a player finishes a run.
+
+1. **Player screen:** Open `index.html` normally (or `index.html#arcade` to start the arcade mode directly).
+2. **Second monitor (staff display):** Open `index.html#display` in a new browser window and move it to the second monitor. It shows a full-screen leaderboard with the top 10 scores, a "Play at home" QR code, and the game URL. New entries are highlighted with a glow animation.
+3. The display updates live — no reload needed. It listens for changes and polls every 2 seconds as a fallback.
+
+Everything works fully offline — the QR code is generated in-browser with no external dependencies.
+
 ## Tools
 
 - **JetBrains WebStorm** with **JetBrains Air**, driving the **Junie** coding agent (it built the colorblind mode). The two-agent workflow story is in [`AI_SHOWCASE.md`](AI_SHOWCASE.md).
